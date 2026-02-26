@@ -26,15 +26,6 @@ OPENAI_EMBED_MODEL=text-embedding-3-small
 GEMINI_API_KEY=AIza...
 
 # ===================================
-# Supabase Configuration (DEPRECATED - MIGRATED TO MONGODB)
-# ===================================
-# Kept for legacy reference if needed, but project now uses MongoDB
-NEXT_PUBLIC_SUPABASE_URL=https://...
-SUPABASE_SERVICE_ROLE_KEY=...
-SUPABASE_ANON_KEY=...
-SUPABASE_STORAGE_BUCKET=ideamill
-
-# ===================================
 # Database Configuration (REQUIRED)
 # ===================================
 # Local MongoDB instance (run via ./start.sh)
@@ -52,7 +43,8 @@ QUEUE_CONCURRENCY=4
 
 1.  Copy the example above into a new file named `.env.local`.
 2.  Replace the placeholder values (`sk-...`, `AIza...`) with real credentials.
-3.  Run the development server:
+3.  Start the services (MongoDB + Next.js + Worker):
     ```bash
-    npm run dev
+    ./start.sh
     ```
+

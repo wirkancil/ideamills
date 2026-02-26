@@ -22,8 +22,8 @@ The system is architected as a **monorepo** containing both the web application 
 
 ### 2.2 Database & Storage
 *   **Primary DB**: MongoDB (v6+)
-    *   **Collections**: `Generations`, `Products`, `Models`, `JobQueue` (custom implementation).
-*   **File Storage**: MongoDB GridFS (for storing generated images and assets locally/persistently).
+    *   **Collections**: `Generations`, `Products`, `Models`, `JobQueue`.
+*   **File Storage**: MongoDB GridFS (for storing generated images and assets locally).
 
 ### 2.3 AI Services (Adapters)
 *   **LLM (Logic & Text)**:
