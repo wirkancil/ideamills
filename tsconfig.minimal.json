@@ -1,0 +1,20 @@
+{
+  "compilerOptions": {
+    "target": "ES2020",
+    "module": "commonjs",
+    "moduleResolution": "node",
+    "esModuleInterop": true,
+    "strict": false,
+    "skipLibCheck": true,
+    "resolveJsonModule": true,
+    "isolatedModules": false,
+    "allowJs": true,
+    "noEmit": true
+  },
+  "include": [
+    "worker/**/*.ts",
+    "scripts/**/*.ts",
+    "app/lib/**/*.ts"
+  ]
+}
+
