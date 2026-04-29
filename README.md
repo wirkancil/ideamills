@@ -16,6 +16,14 @@ Foto Produk + Keyword
 
 Flow alternatif (enhanced): User memilih 1 ide kreatif dari UI → langsung generate N storyboard (tanpa ideation/embedding).
 
+## Pages
+
+- `/` — Dashboard utama: input foto + keyword, pilih ide kreatif, monitor job
+- `/studio` — Studio mode: buat scene manual + generate VEO prompt
+- `/assets` — Assets manager: browse hasil image/video yang sudah di-generate
+- `/history` — Riwayat semua generation
+- `/generations/[id]` — Detail per generation (scenes, prompt, image, video)
+
 ## Tech Stack
 
 - **Next.js 15** (App Router) + React + Tailwind + shadcn/ui
