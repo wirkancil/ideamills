@@ -12,6 +12,7 @@
 
 # production
 /build
+/dist
 
 # misc
 .DS_Store
@@ -19,8 +20,11 @@
 
 # mongodb local data
 mongodb-data/
-logs/
 dump/
+
+# logs
+logs/
+*.log
 
 # debug
 npm-debug.log*
@@ -38,3 +42,11 @@ yarn-error.log*
 *.tsbuildinfo
 next-env.d.ts
 
+# storage (generated assets — images, videos)
+/storage
+
+# scratch
+test-*.js
+test-*.ts
+test.json
+test.png

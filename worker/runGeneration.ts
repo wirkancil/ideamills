@@ -4,15 +4,20 @@ import { getDb } from '../app/lib/mongoClient';
 import { ObjectId } from 'mongodb';
 import { GenerationRequest, EnhancedGenerationRequest, ProductDescription, ModelDescription } from '../app/lib/types';
 import { stableHash } from '../app/lib/utils';
-import * as openai from '../app/lib/adapters/openai';
-import OpenAI from 'openai';
+import * as llm from '../app/lib/llm';
+import { chatCompletion } from '../app/lib/llm/client';
+import { parseJson } from '../app/lib/llm/middleware';
+import { resolvePreset, type ModelConfig } from '../app/lib/llm';
+import {
+  IDEATION_POOL_SIZE,
+  UNIQUE_THEME_TARGET,
+  SIMILARITY_THRESHOLD,
+  VISUAL_PROMPT_CHUNK,
+  SCENE_CHUNK_SIZE,
+} from '../app/lib/workerConfig';
 
-const openaiClient = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY,
-});
-import * as gemini from '../app/lib/adapters/gemini';
-
-  const limit = pLimit(8); // Increased concurrency for better performance
+// p-limit concurrency for parallel LLM calls within a single generation
+const limit = pLimit(8);
 
 // Schema validation
 const SceneSchema = z.object({
@@ -34,33 +39,20 @@ interface ThemeWithVector {
   vector: number[];
 }
 
-async function updateGen(genId: string, updates: any) {
-  // Map status values to match database schema
+async function updateGen(genId: string, updates: Record<string, unknown>) {
   const statusMap: Record<string, string> = {
     'running': 'processing',
     'succeeded': 'completed',
     'failed': 'failed',
   };
-  
-  if (updates.status && statusMap[updates.status]) {
-    updates.status = statusMap[updates.status];
+  if (updates.status && statusMap[updates.status as string]) {
+    updates.status = statusMap[updates.status as string];
   }
-  
-  // Handle error_message field (database uses error_message, not error)
-  if (updates.error && !updates.error_message) {
-    updates.error_message = updates.error;
-    delete updates.error;
-  }
-  
   const db = await getDb();
   await db.collection('Generations').updateOne(
     { _id: new ObjectId(genId) },
     { $set: { ...updates, updated_at: new Date() } }
   );
-
-  // Updated via MongoDB driver; errors will be thrown on failure
-  
-  console.log(`✅ Updated generation ${genId.substring(0, 8)}: ${JSON.stringify(updates)}`);
 }
 
 async function ensureProductModel(
@@ -97,6 +89,9 @@ async function ensureProductModel(
 }
 
 function cosineSimilarity(a: number[], b: number[]): number {
+  if (a.length !== b.length) {
+    throw new Error(`Embedding dimension mismatch: ${a.length} vs ${b.length}. Check that the same embedding model is used for all vectors.`);
+  }
   let dotProduct = 0;
   let normA = 0;
   let normB = 0;
@@ -117,15 +112,12 @@ async function pickUniqueThemes(params: {
 }): Promise<ThemeWithVector[]> {
   const { vectors, productId, desired } = params;
   const unique: ThemeWithVector[] = [];
-  
-  // Simplified: Just check intra-batch similarity
-  // RPC function match_ideas might not exist yet, so skip DB check for now
+
   for (const candidate of vectors) {
-    // Check intra-batch similarity
     let tooSimilar = false;
     for (const existing of unique) {
       const similarity = cosineSimilarity(candidate.vector, existing.vector);
-      if (similarity > 0.96) {
+      if (similarity > SIMILARITY_THRESHOLD) {
         tooSimilar = true;
         break;
       }
@@ -141,157 +133,181 @@ async function pickUniqueThemes(params: {
 }
 
 async function insertIdeas(genId: string, themes: ThemeWithVector[]) {
-  console.log(`💾 Inserting ${themes.length} ideas for generation ${genId.substring(0, 8)}...`);
-  
-  // pgvector needs array format - Supabase automatically converts array to vector type
+  const db = await getDb();
+
+  // Idempotency: wipe any partial data from a previous failed attempt
+  await db.collection('Ideas').deleteMany({ generation_id: genId });
+
   const rows = themes.map((t) => ({
     generation_id: genId,
     idea_text: t.text,
-    embedding: t.vector, // Pass as array, Supabase will convert to vector type
+    embedding: t.vector,
+    created_at: new Date(),
   }));
 
-  console.log(`   First idea preview: "${themes[0]?.text?.substring(0, 60)}..."`);
-  console.log(`   First embedding length: ${themes[0]?.vector?.length || 0}`);
-
-  const db = await getDb();
-  const result = await db.collection('Ideas').insertMany(rows.map((r) => ({ ...r, created_at: new Date() })));
-  const insertedCount = result.insertedCount;
-  if (insertedCount === 0) {
-    throw new Error('Failed to insert ideas');
-  }
-  const verifyCount = await db.collection('Ideas').countDocuments({ generation_id: genId });
-  console.log(`✅ Inserted ${insertedCount} ideas successfully`);
-  return verifyCount;
+  const result = await db.collection('Ideas').insertMany(rows);
+  if (result.insertedCount === 0) throw new Error('Failed to insert ideas');
+  return result.insertedCount;
 }
 
-async function persistScriptsAndScenes(genId: string, scripts: any[]) {
-  console.log(`💾 Persisting ${scripts.length} scripts and scenes...`);
-  console.log(`   Looking for ideas with generation_id: ${genId}`);
-  
-  // First, get idea_ids for this generation (we need to link scripts to ideas)
-  let ideas;
-  let retries = 3;
-  
-  while (retries > 0) {
-    const db = await getDb();
-    const data = await db.collection('Ideas')
-      .find({ generation_id: genId })
-      .sort({ created_at: 1 })
-      .toArray();
-    ideas = data.map((d) => ({ id: d._id.toString(), idea_text: d.idea_text, created_at: d.created_at }));
-    break;
-  }
-
-  if (!ideas || ideas.length === 0) {
-    console.error('❌ No ideas found for generation. Cannot persist scripts.');
-    console.error(`   Generation ID: ${genId}`);
-    
-    const totalIdeas = await (await getDb()).collection('Ideas').countDocuments({});
-    console.log(`   Total ideas in database: ${totalIdeas}`);
-    
-    throw new Error(`No ideas found for generation ${genId.substring(0, 8)}. Ideas may not have been inserted correctly.`);
-  }
-
-  console.log(`✅ Found ${ideas.length} ideas for this generation`);
-
-  // Insert scripts and scenes
-  // OPTIMIZED BATCH INSERTS - Major Performance Improvement
-  console.log(`💾 Batch persisting ${scripts.length} scripts and scenes...`);
-
-  // Prepare all script inserts
-  const scriptInserts = scripts.map((script, i) => {
-    // Find matching idea by theme (first 20 scripts map to 20 ideas, then cycle)
-    const ideaIndex = i % Math.min(ideas.length, 20);
-    const ideaId = ideas[ideaIndex]?.id;
-
-    if (!ideaId) {
-      console.error(`❌ No idea found for script ${i + 1}`);
-      return null;
-    }
-
-    return {
-      generation_id: genId,
-      idea_id: ideaId,
-      theme: script.theme,
-      idx: i + 1,
-    };
-  }).filter(Boolean); // Remove null entries
-
-  console.log(`   📦 Batch inserting ${scriptInserts.length} scripts...`);
-
-  // Batch insert all scripts at once
+async function persistScriptsAndScenes(genId: string, scripts: unknown[]) {
   const db = await getDb();
-  const scriptInsertDocs = scriptInserts.map((s) => ({ ...s, created_at: new Date() }));
-  const scriptsRes = await db.collection('Scripts').insertMany(scriptInsertDocs);
-  const scriptRows = scriptInsertDocs.map((doc, i) => ({ id: Object.values(scriptsRes.insertedIds)[i].toString(), idx: doc.idx }));
 
-  console.log(`   ✅ Successfully batch inserted ${scriptRows.length} scripts`);
-
-  // Prepare all scene inserts
-  const sceneInserts = [];
-  for (let i = 0; i < scripts.length; i++) {
-    const script = scripts[i];
-    const scriptRow = scriptRows.find(sr => sr.idx === i + 1);
-
-    if (!scriptRow) {
-      console.error(`❌ Cannot find script row for idx ${i + 1}`);
-      continue;
-    }
-
-    const scriptScenes = script.scenes.map((scene: any, sceneIdx: number) => ({
-      script_id: scriptRow.id,
-      order: sceneIdx + 1, // 1-indexed
-      struktur: scene.struktur,
-      naskah_vo: scene.naskah_vo,
-      visual_idea: scene.visual_idea,
-      text_to_image: scene.text_to_image || null,
-      image_to_video: scene.image_to_video || null,
-    }));
-
-    sceneInserts.push(...scriptScenes);
+  // Idempotency: remove any partial data from a previous failed attempt
+  const existingScripts = await db.collection('Scripts').find({ generation_id: genId }, { projection: { _id: 1 } }).toArray();
+  if (existingScripts.length > 0) {
+    const existingIds = existingScripts.map((s) => s._id.toString());
+    await db.collection('Scenes').deleteMany({ script_id: { $in: existingIds } });
+    await db.collection('Scripts').deleteMany({ generation_id: genId });
   }
 
-  console.log(`   📦 Batch inserting ${sceneInserts.length} scenes in chunks...`);
+  const ideas = await db.collection('Ideas')
+    .find({ generation_id: genId })
+    .sort({ created_at: 1 })
+    .project({ _id: 1 })
+    .toArray();
 
-  // Batch insert scenes in chunks to avoid payload limits
-  const SCENE_CHUNK_SIZE = 100;
-  let totalInserted = 0;
+  if (ideas.length === 0) {
+    throw new Error(`No ideas found for generation ${genId.slice(0, 8)} — cannot persist scripts`);
+  }
+
+  // Map scripts to ideas (cycle through ideas if more scripts than ideas)
+  const scriptInserts = (scripts as Array<{ theme: string }>).map((script, i) => ({
+    generation_id: genId,
+    idea_id: ideas[i % ideas.length]._id.toString(),
+    theme: script.theme,
+    idx: i + 1,
+    created_at: new Date(),
+  }));
+
+  const scriptsRes = await db.collection('Scripts').insertMany(scriptInserts);
+  const scriptRows = scriptInserts.map((_, i) => ({
+    id: Object.values(scriptsRes.insertedIds)[i].toString(),
+    idx: i + 1,
+  }));
+
+  type ScriptWithScenes = { theme: string; scenes: Array<Record<string, unknown>> };
+  const sceneInserts: Array<Record<string, unknown>> = [];
+  for (let i = 0; i < scripts.length; i++) {
+    const script = scripts[i] as ScriptWithScenes;
+    const scriptRow = scriptRows[i];
+    for (let j = 0; j < script.scenes.length; j++) {
+      const scene = script.scenes[j];
+      sceneInserts.push({
+        script_id: scriptRow.id,
+        order: j + 1,
+        struktur: scene.struktur,
+        naskah_vo: scene.naskah_vo,
+        visual_idea: scene.visual_idea,
+        text_to_image: scene.text_to_image ?? null,
+        image_to_video: scene.image_to_video ?? null,
+        image_status: 'pending',
+        video_status: 'pending',
+        image_source: null,
+        image_error: null,
+        video_error: null,
+        created_at: new Date(),
+      });
+    }
+  }
 
   for (let i = 0; i < sceneInserts.length; i += SCENE_CHUNK_SIZE) {
-    const chunk = sceneInserts.slice(i, i + SCENE_CHUNK_SIZE);
-    const chunkDocs = chunk.map((c) => ({ ...c, created_at: new Date() }));
-    await db.collection('Scenes').insertMany(chunkDocs);
-    totalInserted += chunk.length;
+    await db.collection('Scenes').insertMany(sceneInserts.slice(i, i + SCENE_CHUNK_SIZE));
   }
-
-  console.log(`✅ Batch persisted ${scripts.length} scripts with ${totalInserted} scenes successfully`);
 }
 
-// Enhanced generation: Skip vision analysis, use provided enhanced prompt
+// ─── Enhanced flow (structured payload from UI) ──────────────────────────────
+
+async function processStructuredPayload(
+  genId: string,
+  payload: import('../app/lib/types').GenerationJobPayload,
+  modelConfig: ModelConfig
+) {
+
+  const count = payload.storyboardCount ?? 5;
+  const product = payload.product ?? {};
+  const model = payload.model ?? null;
+  const creativeIdea = payload.creativeIdea;
+
+  await updateGen(genId, { progress: 10, progress_label: 'Menyiapkan konteks...' });
+
+  // Build scripting context from structured data
+  const productCtx = `Brand: ${product.brand ?? '-'}, Category: ${product.category ?? '-'}, Benefit: ${product.key_benefit ?? '-'}, Target: ${product.target_audience ?? '-'}`;
+  const modelCtx = model
+    ? `Model: ${(model as any).age_range ?? '-'}, ${(model as any).gender ?? '-'}, ${(model as any).ethnicity ?? '-'}`
+    : 'No model image';
+  const ideaCtx = creativeIdea
+    ? `Title: ${creativeIdea.title}\nConcept: ${creativeIdea.concept}\nStoryline: ${creativeIdea.storyline}`
+    : `Basic idea: ${payload.basicIdea}`;
+
+  const systemPrompt = `Kamu adalah Sutradara Iklan dan Penulis Naskah profesional.
+Buat ${count} variasi storyboard iklan video 30 detik berbeda namun konsisten dengan brand.
+Setiap storyboard: Hook (0-6s) → Problem (6-12s) → Solution (12-24s) → CTA (24-30s).
+
+Return JSON:
+{
+  "storyboards": [
+    {
+      "idx": 1,
+      "theme": "judul tema (max 60 karakter)",
+      "directors_script": "panduan shooting ringkas",
+      "scenes": [
+        {
+          "struktur": "Hook",
+          "naskah_vo": "teks voiceover bahasa Indonesia",
+          "visual_idea": "deskripsi visual",
+          "text_to_image": "prompt AI image generation detail",
+          "image_to_video": "deskripsi gerakan per detik"
+        }
+      ]
+    }
+  ]
+}`;
+
+  const userPrompt = `PRODUK: ${productCtx}
+${modelCtx}
+
+IDE KREATIF TERPILIH:
+${ideaCtx}
+
+Buat ${count} storyboard yang beragam tapi konsisten dengan brand dan ide di atas.`;
+
+  const { chatCompletion: cc } = await import('../app/lib/llm/client');
+  const { parseJson: pj } = await import('../app/lib/llm/middleware');
+
+  const res = await cc({
+    model: modelConfig.scripting,
+    messages: [
+      { role: 'system', content: systemPrompt },
+      { role: 'user', content: userPrompt },
+    ],
+    max_tokens: count > 10 ? 16000 : 12000,
+    response_format: { type: 'json_object' },
+  });
+
+  const parsed = pj<{ storyboards: Storyboard[] }>(res.choices[0]?.message?.content ?? '');
+  const storyboards: Storyboard[] = parsed.storyboards ?? [];
+
+  if (storyboards.length === 0) throw new Error('No storyboards generated');
+
+  await updateGen(genId, { progress: 60, progress_label: `Menyimpan ${storyboards.length} storyboard...` });
+  await persistStructuredStoryboards(genId, storyboards);
+  await updateGen(genId, { status: 'completed', progress: 100, progress_label: 'Selesai' });
+}
+
+// ─── Old enhanced flow (kept for backward compat with old queue jobs) ─────────
+
 async function processWithEnhancedPrompt(genId: string, payload: EnhancedGenerationRequest) {
-  console.log('🔄 Processing with enhanced prompt...');
-
   try {
-    // Direct Storyboard Generation (variable storyboards with H-P-S-CTA structure)
-    const count = payload.storyboardCount || 5; // Default to 5 if not specified
-    console.log(`🎬 Generating ${count} storyboards with Hook-Problem-Solution-CTA structure...`);
-
+    const count = payload.storyboardCount || 5;
     const storyboards = await generateStoryboardsFromEnhancedPrompt(payload.enhancedPrompt!, payload, count);
-
     await updateGen(genId, { progress: 50 });
-    console.log(`   ✅ Generated ${storyboards.length} storyboards with structured scenes`);
-
-    // Process and persist storyboards
     await persistStructuredStoryboards(genId, storyboards);
-
     await updateGen(genId, { progress: 100, status: 'completed' });
-    console.log('   ✅ Enhanced generation completed successfully');
-
   } catch (error) {
-    console.error('   ❌ Enhanced generation failed:', error);
     await updateGen(genId, {
       status: 'failed',
-      error_message: error instanceof Error ? error.message : String(error)
+      error_message: error instanceof Error ? error.message : String(error),
     });
     throw error;
   }
@@ -317,7 +333,6 @@ interface Storyboard {
  * Generate structured storyboards from enhanced prompt
  */
 async function generateStoryboardsFromEnhancedPrompt(enhancedPrompt: string, payload: EnhancedGenerationRequest, count: number = 5): Promise<Storyboard[]> {
-  console.log(`🎬 Generating ${count} structured storyboards from enhanced prompt...`);
 
   const systemPrompt = `You are an Award-Winning Commercial Director and Screenwriter (Sutradara & Penulis Naskah).
 
@@ -442,260 +457,166 @@ product: ...
 `;
 
   try {
-    // Retry logic for OpenAI API call
-    let retries = 0;
-    const maxRetries = 3;
-    let response;
+    const modelConfig = resolvePreset('balanced');
+    const res = await chatCompletion({
+      model: modelConfig.scripting,
+      messages: [
+        { role: 'system', content: systemPrompt },
+        { role: 'user', content: userPrompt },
+      ],
+      temperature: 0.8,
+      max_tokens: count > 20 ? 16000 : 12000,
+      response_format: { type: 'json_object' },
+    });
 
-    while (retries < maxRetries) {
-      try {
-        console.log(`   🔄 Attempt ${retries + 1}/${maxRetries} to generate storyboards...`);
-        
-        response = await openaiClient.chat.completions.create({
-          model: 'gpt-5.2',
-          messages: [
-            { role: 'system', content: systemPrompt },
-            { role: 'user', content: userPrompt }
-          ],
-          temperature: 0.8,
-          max_completion_tokens: count > 20 ? 16000 : 12000, // Optimize token limit based on count
-          response_format: { type: 'json_object' }
-        });
-
-        const content = response.choices[0]?.message?.content;
-        if (content) {
-          // Success!
-          break; 
-        } else {
-          console.warn(`   ⚠️ Attempt ${retries + 1} failed: Empty content from OpenAI`);
-        }
-      } catch (apiError) {
-        console.error(`   ⚠️ Attempt ${retries + 1} failed with error:`, apiError);
-        // Wait before retrying (exponential backoff: 2s, 4s, 8s)
-        const delay = Math.pow(2, retries + 1) * 1000;
-        console.log(`   ⏳ Waiting ${delay}ms before retry...`);
-        await new Promise(resolve => setTimeout(resolve, delay));
-      }
-      
-      retries++;
-    }
-
-    const content = response?.choices[0]?.message?.content;
+    const content = res.choices[0]?.message?.content;
     if (!content) {
-      throw new Error(`No response from GPT for storyboard generation after ${maxRetries} attempts`);
+      throw new Error('No response from LLM for storyboard generation');
     }
 
-    // Parse JSON response
-    let parsed: any;
+    let parsed: { storyboards?: unknown };
     try {
       parsed = JSON.parse(content);
     } catch (parseError) {
-      console.error(`   [Storyboard] JSON parse error:`, parseError);
-      console.error(`   [Storyboard] Raw content:`, content.substring(0, 500));
-      throw new Error(`Failed to parse GPT response as JSON: ${parseError instanceof Error ? parseError.message : String(parseError)}`);
+      throw new Error(`Failed to parse LLM response: ${parseError instanceof Error ? parseError.message : String(parseError)}`);
     }
 
-    console.log(`   [Storyboard] Parsed JSON object successfully`);
-
-    // Extract storyboards array from response
     const storyboards = parsed.storyboards;
     if (!Array.isArray(storyboards)) {
-      console.error(`   [Storyboard] storyboards property is not an array:`, typeof storyboards);
-      throw new Error(`Expected storyboards to be an array, got ${typeof storyboards}`);
+      throw new Error(`Expected storyboards array, got ${typeof storyboards}`);
     }
 
-    if (storyboards.length !== count) {
-      console.warn(`   [Storyboard] Expected ${count} storyboards, got ${storyboards.length}`);
-    }
-
-    console.log(`✅ Successfully generated ${storyboards.length} structured storyboards`);
-    return storyboards;
-
+    return storyboards as Storyboard[];
   } catch (error) {
-    console.error('❌ Storyboard generation failed:', error);
     throw new Error(`Storyboard generation failed: ${error instanceof Error ? error.message : String(error)}`);
   }
 }
 
-/**
- * Persist structured storyboards to database
- */
 async function persistStructuredStoryboards(genId: string, storyboards: Storyboard[]) {
-  console.log('💾 Persisting structured storyboards to database...');
+  const db = await getDb();
 
-  const limit = pLimit(8); // Concurrency control
+  // Idempotency: remove partial data from any previous failed attempt
+  const existingScripts = await db.collection('Scripts').find({ generation_id: genId }, { projection: { _id: 1 } }).toArray();
+  if (existingScripts.length > 0) {
+    const existingIds = existingScripts.map((s) => s._id.toString());
+    await db.collection('Scenes').deleteMany({ script_id: { $in: existingIds } });
+    await db.collection('Scripts').deleteMany({ generation_id: genId });
+  }
+  await db.collection('Ideas').deleteMany({ generation_id: genId });
 
-  try {
-    // Create Ideas entries for each storyboard theme
-    const ideaInserts = storyboards.map((storyboard, index) => ({
-      generation_id: genId,
-      idea_text: storyboard.theme,
-      embedding: null, // Skip embedding for now
-    }));
+  // Insert ideas
+  const ideaInserts = storyboards.map((sb) => ({
+    generation_id: genId,
+    idea_text: sb.theme,
+    embedding: null,
+    created_at: new Date(),
+  }));
+  const { insertedCount: ideaCount, insertedIds: ideaIds } = await db.collection('Ideas').insertMany(ideaInserts);
+  if (ideaCount === 0) throw new Error('Failed to create ideas');
+  const ideaIdList = Object.values(ideaIds).map((id) => id.toString());
 
-    const db = await getDb();
-    const { insertedCount, insertedIds } = await db.collection('Ideas').insertMany(
-      ideaInserts.map((d) => ({ ...d, created_at: new Date() }))
-    );
-    if (insertedCount === 0) {
-      throw new Error(`Failed to create ideas`);
-    }
+  // Insert scripts
+  const scriptInserts = storyboards.map((sb, i) => ({
+    generation_id: genId,
+    idea_id: ideaIdList[i],
+    theme: sb.theme,
+    idx: sb.idx,
+    directors_script: sb.directors_script,
+    created_at: new Date(),
+  }));
+  const scriptsRes = await db.collection('Scripts').insertMany(scriptInserts);
+  const scriptIdList = Object.values(scriptsRes.insertedIds).map((id) => id.toString());
 
-    const ideas = await db.collection('Ideas')
-      .find({ generation_id: genId })
-      .project({ _id: 1, idea_text: 1 })
-      .toArray();
-    console.log(`✅ Created ${ideas.length} idea entries`);
-
-    // Create Scripts and Scenes
-    const scriptInserts = [];
-    const sceneInserts = [];
-
-    for (let i = 0; i < storyboards.length; i++) {
-      const storyboard = storyboards[i];
-      const idea = ideas[i];
-
-      // Script entry
-      scriptInserts.push({
-        generation_id: genId,
-        idea_id: idea._id.toString(),
-        theme: storyboard.theme,
-        idx: storyboard.idx,
-        directors_script: storyboard.directors_script,
+  // Insert scenes
+  const sceneInserts: Array<Record<string, unknown>> = [];
+  for (let i = 0; i < storyboards.length; i++) {
+    for (let j = 0; j < storyboards[i].scenes.length; j++) {
+      const scene = storyboards[i].scenes[j];
+      sceneInserts.push({
+        script_id: scriptIdList[i],
+        order: j + 1,
+        struktur: scene.struktur,
+        naskah_vo: scene.naskah_vo,
+        visual_idea: scene.visual_idea,
+        text_to_image: scene.text_to_image ?? null,
+        image_to_video: scene.image_to_video ?? null,
+        image_status: 'pending',
+        video_status: 'pending',
+        image_source: null,
+        image_error: null,
+        video_error: null,
+        created_at: new Date(),
       });
-
-      // Scene entries (4 scenes per storyboard)
-      for (let j = 0; j < storyboard.scenes.length; j++) {
-        const scene = storyboard.scenes[j];
-        sceneInserts.push({
-          script_id: `temp-${i}`, // Will be updated after script creation
-          order: j + 1,
-          struktur: scene.struktur,
-          naskah_vo: scene.naskah_vo,
-          visual_idea: scene.visual_idea,
-          text_to_image: scene.text_to_image || null,
-          image_to_video: scene.image_to_video || null,
-        });
-      }
     }
+  }
 
-    // Insert scripts
-    const scriptsRes = await db.collection('Scripts').insertMany(
-      scriptInserts.map((d) => ({ ...d, created_at: new Date() }))
-    );
-    const scripts = scriptInserts.map((d, i) => ({ id: Object.values(scriptsRes.insertedIds)[i].toString(), idx: d.idx }));
-
-    console.log(`✅ Created ${scripts.length} script entries`);
-
-    // Update scene script_ids and insert scenes
-    const updatedSceneInserts = sceneInserts.map((scene, index) => {
-      const storyboardIndex = Math.floor(index / 4); // 4 scenes per storyboard
-      const script = scripts[storyboardIndex];
-      return {
-        ...scene,
-        script_id: script.id,
-      };
-    });
-
-    // Insert scenes in batches
-    const SCENE_BATCH_SIZE = 50;
-    for (let i = 0; i < updatedSceneInserts.length; i += SCENE_BATCH_SIZE) {
-      const batch = updatedSceneInserts.slice(i, i + SCENE_BATCH_SIZE);
-      await db.collection('Scenes').insertMany(batch.map((b) => ({ ...b, created_at: new Date() })));
-    }
-
-    console.log(`✅ Created ${updatedSceneInserts.length} scene entries`);
-
-    // Update generation progress
-    await updateGen(genId, {
-      progress: 75,
-      status: 'processing'
-    });
-
-  } catch (error) {
-    console.error('❌ Database persistence failed:', error);
-    throw new Error(`Database persistence failed: ${error instanceof Error ? error.message : String(error)}`);
+  for (let i = 0; i < sceneInserts.length; i += SCENE_CHUNK_SIZE) {
+    await db.collection('Scenes').insertMany(sceneInserts.slice(i, i + SCENE_CHUNK_SIZE));
   }
 }
 
-export async function runGeneration(genId: string, payload: GenerationRequest | EnhancedGenerationRequest) {
-  console.log(`🚀 Starting generation ${genId.substring(0, 8)}...`);
+export async function runGeneration(
+  genId: string,
+  payload: GenerationRequest | EnhancedGenerationRequest | import('../app/lib/types').GenerationJobPayload
+) {
 
   try {
-    await updateGen(genId, { status: 'processing', progress: 5 });
+    await updateGen(genId, { status: 'processing', progress: 5, progress_label: 'Memulai proses...' });
 
-    // Check if this is enhanced generation (skip vision analysis)
-    const isEnhanced = 'enhancedPrompt' in payload || payload.productImageUrl === 'enhanced-flow';
-    console.log(`   Mode: ${isEnhanced ? 'ENHANCED (skip vision analysis)' : 'STANDARD (full analysis)'}`);
+    const db = await getDb();
+    const genDoc = await db.collection('Generations').findOne(
+      { _id: new ObjectId(genId) },
+      { projection: { modelConfig: 1 } }
+    );
+    const modelConfig: ModelConfig = genDoc?.modelConfig ?? resolvePreset('balanced');
 
-    let enhancedPrompt: string | undefined;
-
-    if (isEnhanced) {
-      if ('enhancedPrompt' in payload) {
-        // Enhanced prompt from payload
-        enhancedPrompt = payload.enhancedPrompt;
-        console.log('   📋 Using enhanced prompt from payload');
-      } else {
-        console.log('   📋 Enhanced flow detected, fetching prompt from database...');
-        const db = await getDb();
-        const gen = await db.collection('Generations').findOne({ _id: new ObjectId(genId) }, { projection: { overrides: 1 } });
-        if (gen?.overrides) {
-          enhancedPrompt = gen.overrides;
-          console.log('   ✅ Enhanced prompt loaded from database');
-        } else {
-          throw new Error('Enhanced prompt not found in database');
-        }
-      }
-
-      console.log(`   📝 Enhanced prompt length: ${enhancedPrompt!.length} chars`);
-
-      // Process with enhanced prompt
-      const enhancedPayload: EnhancedGenerationRequest = {
-        ...payload,
-        enhancedPrompt: enhancedPrompt!
-      };
-      await processWithEnhancedPrompt(genId, enhancedPayload);
+    // Structured payload from new UI flow (has creativeIdea field)
+    if ('creativeIdea' in payload && payload.creativeIdea) {
+      await processStructuredPayload(
+        genId,
+        payload as import('../app/lib/types').GenerationJobPayload,
+        modelConfig
+      );
       return;
     }
 
-    // L0: Standard Vision Analysis
-    console.log('L0: Vision analysis...');
-    console.log(`   Product image URL: ${payload.productImageUrl?.substring(0, 80)}...`);
-    
-    // Validate image URL exists
-    if (!payload.productImageUrl || payload.productImageUrl.trim() === '') {
+    // Legacy enhanced flow (old queue jobs with enhancedPrompt string)
+    const isLegacyEnhanced = 'enhancedPrompt' in payload || (payload as GenerationRequest).productImageUrl === 'enhanced-flow';
+    if (isLegacyEnhanced) {
+      let enhancedPrompt = ('enhancedPrompt' in payload ? payload.enhancedPrompt : undefined) as string | undefined;
+      if (!enhancedPrompt) {
+        const gen = await db.collection('Generations').findOne(
+          { _id: new ObjectId(genId) },
+          { projection: { overrides: 1, product_image_url: 1, model_image_url: 1 } }
+        );
+        if (!gen?.overrides) throw new Error('Enhanced prompt not found in database');
+        enhancedPrompt = gen.overrides;
+        (payload as GenerationRequest).productImageUrl = gen.product_image_url || (payload as GenerationRequest).productImageUrl;
+        if (gen.model_image_url) payload.modelImageUrl = gen.model_image_url;
+      }
+      await processWithEnhancedPrompt(genId, { ...payload, enhancedPrompt } as EnhancedGenerationRequest);
+      return;
+    }
+
+    // Standard flow — payload is GenerationRequest from here on
+    const stdPayload = payload as GenerationRequest;
+
+    if (!stdPayload.productImageUrl?.trim()) {
       throw new Error('Product image URL is required');
     }
-    
-    // Convert to base64 for reliability (no timeout issues)
+
+    // Convert product image to base64 for reliability
     let productImageInput: string;
-    let isBase64Format = false;
     try {
       const { imageUrlToBase64 } = await import('./imageOptimizer');
-      productImageInput = await imageUrlToBase64(payload.productImageUrl);
-      isBase64Format = productImageInput.startsWith('data:image/');
-      console.log(`   ✅ Image converted to base64 (more reliable)`);
-      console.log(`   📊 Base64 format: ${isBase64Format ? 'YES' : 'NO'}`);
-      console.log(`   📏 Base64 length: ${productImageInput.length} chars (${(productImageInput.length / 1024 / 1024).toFixed(2)} MB as base64)`);
-      
-      // Validate base64 format
-      if (isBase64Format) {
+      productImageInput = await imageUrlToBase64(stdPayload.productImageUrl);
+      if (productImageInput.startsWith('data:image/')) {
         const base64Data = productImageInput.split(',')[1];
-        if (!base64Data || base64Data.length < 100) {
-          throw new Error('Base64 data seems too short or invalid');
-        }
-        console.log(`   ✅ Base64 validation passed (${base64Data.length} chars of data)`);
+        if (!base64Data || base64Data.length < 100) throw new Error('Base64 data too short');
       }
-    } catch (base64Error) {
-      console.error('   ❌ Base64 conversion failed:', base64Error);
-      console.error('   Error details:', base64Error instanceof Error ? base64Error.stack : String(base64Error));
-      console.warn('   ⚠️  Falling back to URL (may have timeout issues)');
-      productImageInput = payload.productImageUrl;
-      isBase64Format = false;
+    } catch {
+      productImageInput = stdPayload.productImageUrl; // fallback to URL
     }
-    
-    // L1: Parallel Vision Analysis (Product + Model) - MAJOR OPTIMIZATION
-    console.log('L1: Parallel vision analysis (product + model simultaneously)...');
 
     let product: ProductDescription;
     let productId: string;
@@ -707,52 +628,21 @@ export async function runGeneration(genId: string, payload: GenerationRequest | 
 
     // Product analysis task with caching
     analysisTasks.push(async () => {
-      // Create cache key for product analysis
-      const productCacheKey = stableHash(productImageInput + (payload.visualOverrides ?? '') + (payload.engine || ''));
-      console.log(`   🔄 Analyzing PRODUCT (cache key: ${productCacheKey.substring(0, 8)})...`);
-
-      // Check cache first (Products table)
+      const productCacheKey = stableHash(productImageInput + (stdPayload.visualOverrides ?? ''));
       try {
         const db = await getDb();
-        const cachedProduct = await db.collection('Products').findOne({ product_identifier: productCacheKey }, { projection: { description: 1 } });
-        if (cachedProduct?.description) {
-          console.log('   ✅ Product analysis loaded from CACHE!');
-          return cachedProduct.description as ProductDescription;
-        }
-      } catch {
-      }
+        const cached = await db.collection('Products').findOne({ product_identifier: productCacheKey }, { projection: { description: 1 } });
+        if (cached?.description) return cached.description as ProductDescription;
+      } catch { /* cache miss, proceed */ }
 
-      console.log(`   💡 Context: basicIdea = "${payload.basicIdea?.substring(0, 100) || 'N/A'}..."`);
-      if (payload.visualOverrides) {
-        console.log(`   🎨 Context: visualOverrides = "${payload.visualOverrides.substring(0, 100)}..."`);
-      }
-
-      let result;
-      if (payload.engine === 'gemini-2.5-flash') {
-        result = await gemini.visionDescribeProductGemini(
-          productImageInput,
-          payload.basicIdea,
-          payload.visualOverrides || undefined
-        );
-      } else {
-        result = await openai.visionDescribeProduct(
-          productImageInput,
-          payload.basicIdea,
-          payload.visualOverrides || undefined
-        );
-      }
-
-      // Validate response
-      if (!result || typeof result !== 'object') {
-        throw new Error('Invalid product description returned from OpenAI');
-      }
-
-      console.log('   ✅ Product analysis complete (new):');
-      console.log(`      Brand: ${result.brand || 'N/A'}`);
-      console.log(`      Form Factor: ${result.form_factor || 'N/A'}`);
-      console.log(`      Category: ${result.category || 'N/A'}`);
-      console.log(`      Key Benefit: ${result.key_benefit || 'N/A'}`);
-
+      const result = await llm.visionDescribeProduct(
+        productImageInput,
+        stdPayload.basicIdea,
+        stdPayload.visualOverrides || undefined,
+        modelConfig,
+        genId
+      );
+      if (!result || typeof result !== 'object') throw new Error('Invalid product description from LLM');
       return result;
     });
 
@@ -760,246 +650,94 @@ export async function runGeneration(genId: string, payload: GenerationRequest | 
     if (payload.modelImageUrl) {
       const modelImageUrl = payload.modelImageUrl;
       analysisTasks.push(async () => {
-        console.log('   📸 Converting model image...');
         let modelImageInput: string;
-        let isModelBase64 = false;
-
         try {
           const { imageUrlToBase64 } = await import('./imageOptimizer');
           modelImageInput = await imageUrlToBase64(modelImageUrl);
-          isModelBase64 = modelImageInput.startsWith('data:image/');
-          console.log(`   ✅ Model image converted to base64 (${isModelBase64 ? 'YES' : 'NO'})`);
-        } catch (base64Error) {
-          console.error('   ❌ Model base64 conversion failed:', base64Error);
-          console.warn('   ⚠️  Falling back to URL');
+        } catch {
           modelImageInput = modelImageUrl;
-          isModelBase64 = false;
         }
-
-        console.log(`   🔄 Analyzing MODEL (using ${isModelBase64 ? 'base64' : 'URL'})...`);
-
-        let result;
-        if (payload.engine === 'gemini-2.5-flash') {
-          result = await gemini.visionDescribeModelGemini(modelImageInput);
-        } else {
-          result = await openai.visionDescribeModel(modelImageInput);
-        }
-
-        // Validate response
-        if (!result || typeof result !== 'object') {
-          throw new Error('Invalid model description returned from OpenAI');
-        }
-
-        console.log('   ✅ Model analysis complete:');
-        console.log(`      Age Range: ${result.age_range || 'N/A'}`);
-        console.log(`      Gender: ${result.gender || 'N/A'}`);
-        console.log(`      Appearance: ${result.appearance?.substring(0, 60) || 'N/A'}...`);
-
+        const result = await llm.visionDescribeModel(modelImageInput, modelConfig, genId);
+        if (!result || typeof result !== 'object') throw new Error('Invalid model description from LLM');
         return result;
       });
-    } else {
-      console.log('   ℹ️  No model image provided - using generic model description');
     }
 
-    try {
-      // Execute all analysis tasks in parallel
-      console.log(`   🚀 Executing ${analysisTasks.length} analysis task(s) in parallel...`);
-      const startTime = Date.now();
-
-      const results = await Promise.all(analysisTasks.map((task) => task()));
-
-      const endTime = Date.now();
-      const duration = ((endTime - startTime) / 1000).toFixed(1);
-      console.log(`   ⚡ Parallel analysis completed in ${duration}s!`);
-
-      // Assign results
-      product = results[0] as ProductDescription;
-      // Use cache key as productId (already includes image + context)
-      productId = stableHash(productImageInput + (payload.visualOverrides ?? ''));
-
-      if (results.length > 1) {
-        model = results[1] as ModelDescription;
-        // Create model cache key based on image content
-        const modelCacheKey = payload.modelImageUrl ? stableHash(payload.modelImageUrl) : stableHash(JSON.stringify(model));
-        modelId = modelCacheKey;
-      }
-
-      console.log(`   📦 Product ID: ${productId.substring(0, 16)}...`);
-      if (modelId) {
-        console.log(`   👤 Model ID: ${modelId.substring(0, 16)}...`);
-      }
-
-    } catch (error) {
-      console.error('   ❌ Vision analysis failed!');
-      console.error('   Error type:', error instanceof Error ? error.constructor.name : typeof error);
-      console.error('   Error message:', error instanceof Error ? error.message : String(error));
-      if (error instanceof Error && error.stack) {
-        console.error('   Stack trace:', error.stack);
-      }
-
-      // Check if it's an OpenAI API error
-      if (error && typeof error === 'object' && 'response' in error) {
-        const apiError = error as any;
-        console.error('   OpenAI API Error Details:');
-        console.error('   Status:', apiError.response?.status);
-        console.error('   Status Text:', apiError.response?.statusText);
-        console.error('   Response:', JSON.stringify(apiError.response?.data, null, 2));
-      }
-
-      const errorMsg = error instanceof Error ? error.message : String(error);
-      throw new Error(`Vision analysis failed: ${errorMsg}`);
+    const results = await Promise.all(analysisTasks.map((task) => task()));
+    product = results[0] as ProductDescription;
+    productId = stableHash(productImageInput + (stdPayload.visualOverrides ?? ''));
+    if (results.length > 1) {
+      model = results[1] as ModelDescription;
+      modelId = payload.modelImageUrl ? stableHash(payload.modelImageUrl) : stableHash(JSON.stringify(model));
     }
 
-    // Handle case where no model image was provided
     if (!model) {
-      try {
-        console.log('   🔄 Generating generic model description...');
-        model = await openai.genericModelDescribe(payload.basicIdea);
-        modelId = stableHash(JSON.stringify(model));
-        console.log(`   👤 Generic Model ID: ${modelId.substring(0, 16)}...`);
-      } catch (error) {
-        console.error('   ❌ Generic model description failed:', error);
-        throw error;
-      }
+      model = await llm.genericModelDescribe(stdPayload.basicIdea, modelConfig, genId);
+      modelId = stableHash(JSON.stringify(model));
     }
 
+    await ensureProductModel(productId, product, modelId, model);
+    await updateGen(genId, {
+      product_identifier: productId,
+      model_identifier: modelId,
+      progress: 10,
+      progress_label: 'Menganalisis produk & model...',
+    });
 
-    try {
-      await ensureProductModel(productId, product, modelId, model);
-      console.log('   ✅ Product & Model saved to database');
-    } catch (error) {
-      console.error('   ❌ Failed to save product/model:', error);
-      throw error;
-    }
+    const potentialIdeas = await llm.ideation50(product, stdPayload.basicIdea, modelConfig, genId);
 
-    try {
-      await updateGen(genId, {
-        product_identifier: productId,
-        model_identifier: modelId,
-        progress: 10,
-      });
-      console.log('   ✅ Generation updated to 10% with product/model IDs');
-    } catch (error) {
-      console.error('   ❌ Failed to update generation:', error);
-      throw error;
-    }
-
-    // L1: Ideation (50 angles)
-    console.log('L1: Ideation...');
-    const potentialIdeas =
-      payload.engine === 'gpt-5.2'
-        ? await openai.ideation50(product, payload.basicIdea)
-        : await gemini.ideation50Gemini(product, payload.basicIdea);
-
-    // L2: Embed + Filter (adaptive uniqueness)
-    console.log('L2: Embedding and filtering...');
-    const vectors = await openai.embedBatch(potentialIdeas.slice(0, 50), 50); // Increased batch size
+    const vectors = await llm.embedBatch(potentialIdeas.slice(0, IDEATION_POOL_SIZE), IDEATION_POOL_SIZE, modelConfig, genId);
     const themesWithVectors: ThemeWithVector[] = potentialIdeas
       .slice(0, 50)
       .map((text, i) => ({ text, vector: vectors[i] }));
 
-    const uniqueThemes = await pickUniqueThemes({
-      vectors: themesWithVectors,
-      productId,
-      desired: 20,
-    });
-
+    const uniqueThemes = await pickUniqueThemes({ vectors: themesWithVectors, productId, desired: UNIQUE_THEME_TARGET });
     const insertedCount = await insertIdeas(genId, uniqueThemes);
-    if (insertedCount === 0) {
-      throw new Error('No ideas were inserted. Cannot proceed with script generation.');
-    }
-    
-    await updateGen(genId, { progress: 35 });
-    console.log(`✅ Progress updated to 35% (${insertedCount} ideas inserted)`);
-    console.log(`Selected ${uniqueThemes.length} unique themes`);
+    if (insertedCount === 0) throw new Error('No ideas inserted — cannot proceed with script generation');
+    await updateGen(genId, { progress: 35, progress_label: `Memilih ${uniqueThemes.length} tema unik...` });
 
     // L3: Script Generation (20 themes × 5 scripts = 100)
-    console.log('L3: Generating scripts...');
-    const scriptPromises = uniqueThemes.map((theme) =>
-      limit(async () => {
-        if (payload.engine === 'gpt-5.2') {
-          return await openai.script5(theme.text);
-        } else {
-          return await gemini.script5Gemini(theme.text);
-        }
-      })
+    // Use allSettled so a single theme failure doesn't kill the whole generation
+    const scriptResults = await Promise.allSettled(
+      uniqueThemes.map((theme) => limit(() => llm.script5(theme.text, modelConfig, genId)))
     );
 
-    const scriptBatches = await Promise.all(scriptPromises);
-    let scripts100 = scriptBatches.flat();
+    let scripts100 = scriptResults
+      .flatMap((r) => (r.status === 'fulfilled' ? r.value : []))
+      .filter((s) => {
+        try { ScriptSchema.parse(s); return true; } catch { return false; }
+      });
 
-    // Validate scripts
-    scripts100 = scripts100.filter((s) => {
-      try {
-        ScriptSchema.parse(s);
-        return true;
-      } catch (e) {
-        console.error('Invalid script schema:', e);
-        return false;
-      }
-    });
-
-    console.log(`Generated ${scripts100.length} valid scripts`);
-
-    // Ensure we have exactly 100 (or pad/trim)
-    if (scripts100.length > 100) {
-      scripts100 = scripts100.slice(0, 100);
-    } else if (scripts100.length < 100) {
-      console.warn(`Only generated ${scripts100.length}/100 scripts`);
+    if (scripts100.length === 0) {
+      throw new Error('All script generation attempts failed — no valid scripts produced');
     }
+    if (scripts100.length > 100) scripts100 = scripts100.slice(0, 100);
 
-    await updateGen(genId, { progress: 75 });
-    console.log('✅ Progress updated to 75% (Scripts generated)');
+    await updateGen(genId, { progress: 75, progress_label: `Menulis ${scripts100.length} script...` });
 
-    // L5: Visual Prompt Enrichment (optimized chunking)
-    console.log('L5: Enriching visual prompts...');
-    console.log(`   Total scripts to enrich: ${scripts100.length}`);
+    // L5: Visual Prompt Enrichment in chunks
+    const CHUNK_SIZE = VISUAL_PROMPT_CHUNK;
+    const chunks: unknown[][] = [];
+    for (let i = 0; i < scripts100.length; i += CHUNK_SIZE) chunks.push(scripts100.slice(i, i + CHUNK_SIZE));
 
-    // Process in smaller chunks for better memory management and progress tracking
-    const CHUNK_SIZE = 25;
-    const chunks = [];
-    for (let i = 0; i < scripts100.length; i += CHUNK_SIZE) {
-      chunks.push(scripts100.slice(i, i + CHUNK_SIZE));
-    }
-
-    console.log(`   Processing in ${chunks.length} chunks of ${CHUNK_SIZE} scripts each`);
-
-    const final = [];
+    const final: unknown[] = [];
     for (let i = 0; i < chunks.length; i++) {
-      const chunk = chunks[i];
-      console.log(`   Processing chunk ${i + 1}/${chunks.length} (${chunk.length} scripts)...`);
-
-      const enrichedChunk = await openai.enrichVisualPrompts(
-        product,
-        model,
-        payload.visualOverrides || '',
-        chunk
-      );
-
+      const enrichedChunk = await llm.enrichVisualPrompts(product, model, stdPayload.visualOverrides || '', chunks[i], modelConfig, genId);
       final.push(...enrichedChunk);
-
-      // Update progress incrementally
       const progress = 75 + Math.round(((i + 1) / chunks.length) * 20);
-      await updateGen(genId, { progress });
-
-      console.log(`   ✅ Chunk ${i + 1} completed. Progress: ${progress}%`);
+      await updateGen(genId, { progress, progress_label: `Membuat visual prompt (${i + 1}/${chunks.length})...` });
     }
 
-    console.log(`✅ Visual prompts enriched: ${final.length} scripts ready`);
-    console.log('💾 Persisting to database...');
     await persistScriptsAndScenes(genId, final);
 
-    await updateGen(genId, { status: 'completed', progress: 100 });
-    console.log(`✅ Generation ${genId.substring(0, 8)} completed successfully!`);
+    // Scripts & visual prompts complete — images/videos are triggered manually from the UI
+    await updateGen(genId, { status: 'completed', progress: 100, progress_label: 'Selesai' });
   } catch (e) {
     const errorMessage = e instanceof Error ? e.message : String(e);
-    console.error(`❌ Generation ${genId.substring(0, 8)} failed:`, errorMessage);
-    console.error('Stack:', e instanceof Error ? e.stack : 'No stack');
-    
+    // Do not reset progress to 0 — preserve how far we got for debugging
     await updateGen(genId, {
       status: 'failed',
-      error: errorMessage,
-      progress: 0,
+      error_message: errorMessage,
     });
     throw e;
   }

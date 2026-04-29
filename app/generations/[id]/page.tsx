@@ -4,13 +4,17 @@ import { use, useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { JobStatus } from '@/app/components/JobStatus';
 import { ResultsDisplay } from '@/app/components/ResultsDisplay';
+import { SceneAssetPanel } from '@/app/components/SceneAssetPanel';
 import { Button } from '@/app/components/ui/button';
 import { Card, CardContent } from '@/app/components/ui/card';
-import { ArrowLeft, RefreshCw, XCircle } from 'lucide-react';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/app/components/ui/tabs';
+import { ArrowLeft, RefreshCw, XCircle, Image as ImageIcon } from 'lucide-react';
 import { GenerationStatus, Variation } from '@/app/lib/types';
 
-export default function GenerationDetailPage({ params }: { params: Promise<{ id: string }> }) {
+export default function GenerationDetailPage({ params, searchParams }: { params: Promise<{ id: string }>; searchParams?: Promise<{ tab?: string }> }) {
   const resolvedParams = use(params);
+  const resolvedSearch = searchParams ? use(searchParams) : {};
+  const defaultTab = resolvedSearch.tab === 'assets' ? 'assets' : 'scripts';
   const { id } = resolvedParams;
   const router = useRouter();
   const [status, setStatus] = useState<GenerationStatus | null>(null);
@@ -22,17 +26,15 @@ export default function GenerationDetailPage({ params }: { params: Promise<{ id:
   const fetchGeneration = async () => {
     try {
       const response = await fetch(`/api/generations/${id}?page=${page}&pageSize=20`);
-      
+
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({ error: 'Unknown error' }));
-        console.error('API Error:', response.status, errorData);
         
         if (response.status === 404) {
           setStatus({
             id: id,
             status: 'failed',
             progress: 0,
-            engine: 'gpt-5.2',
             counts: { themes: 0, scripts: 0, variations: 0 },
             error: 'Generation tidak ditemukan. Mungkin ID tidak valid atau generation sudah dihapus.',
             createdAt: new Date().toISOString(),
@@ -42,7 +44,6 @@ export default function GenerationDetailPage({ params }: { params: Promise<{ id:
             id: id,
             status: 'failed',
             progress: 0,
-            engine: 'gpt-5.2',
             counts: { themes: 0, scripts: 0, variations: 0 },
             error: `Error ${response.status}: ${errorData.error || 'Gagal memuat generation'}`,
             createdAt: new Date().toISOString(),
@@ -59,16 +60,13 @@ export default function GenerationDetailPage({ params }: { params: Promise<{ id:
         const text = await response.text();
         data = JSON.parse(text);
       } catch (parseError) {
-        console.error('JSON parse error:', parseError);
         const errorMessage = parseError instanceof Error ? parseError.message : 'Invalid JSON';
-        console.error('Error details:', errorMessage);
         
         // Set error status
         setStatus({
           id: id,
           status: 'failed',
           progress: 0,
-          engine: 'gpt-5.2',
           counts: { themes: 0, scripts: 0, variations: 0 },
           error: `Error parsing response: ${errorMessage}. Kemungkinan ada data yang corrupt di database.`,
           createdAt: new Date().toISOString(),
@@ -83,6 +81,7 @@ export default function GenerationDetailPage({ params }: { params: Promise<{ id:
         id: data.id,
         status: data.status,
         progress: data.progress,
+        progressLabel: data.progressLabel,
         engine: data.engine,
         productIdentifier: data.productIdentifier,
         counts: data.counts,
@@ -100,12 +99,10 @@ export default function GenerationDetailPage({ params }: { params: Promise<{ id:
       setTotalVariations(data.totalVariations || 0);
       setLoading(false);
     } catch (error) {
-      console.error('Fetch error:', error);
       setStatus({
         id: id,
         status: 'failed',
         progress: 0,
-        engine: 'gpt-5.2',
         counts: { themes: 0, scripts: 0, variations: 0 },
         error: `Network error: ${error instanceof Error ? error.message : 'Gagal menghubungi server'}`,
         createdAt: new Date().toISOString(),
@@ -121,21 +118,15 @@ export default function GenerationDetailPage({ params }: { params: Promise<{ id:
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id, page]);
 
-  // Real-time polling - poll every 2 seconds if processing
+  // Poll while job is active; use longer interval when queued (just waiting), shorter when processing
   useEffect(() => {
-    // Don't poll if status is completed/failed/canceled or loading
     if (loading) return;
-    
-    const isActive = status?.status === 'queued' || 
-                     status?.status === 'processing' || 
-                     status?.status === 'running';
-    
+    const isActive = status?.status === 'queued' || status?.status === 'processing' || status?.status === 'running';
     if (!isActive) return;
 
-    const interval = setInterval(() => {
-      fetchGeneration();
-    }, 2000); // Poll every 2 seconds for real-time updates
-
+    // 5s while queued (nothing changing yet), 3s while actively processing
+    const intervalMs = status?.status === 'queued' ? 5000 : 3000;
+    const interval = setInterval(() => { fetchGeneration(); }, intervalMs);
     return () => clearInterval(interval);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id, status?.status, loading]);
@@ -159,7 +150,6 @@ export default function GenerationDetailPage({ params }: { params: Promise<{ id:
       // Reload page data
       await fetchGeneration();
     } catch (err) {
-      console.error('Retry failed:', err);
       alert(`Gagal mencoba ulang: ${err instanceof Error ? err.message : String(err)}`);
       setLoading(false);
     }
@@ -195,16 +185,34 @@ export default function GenerationDetailPage({ params }: { params: Promise<{ id:
         {status && <JobStatus status={status} />}
       </div>
 
-      {/* Results */}
-      {variations.length > 0 && (
-        <ResultsDisplay
-          variations={variations}
-          totalCount={totalVariations}
-          themeCounts={status?.themeCounts}
-          onLoadMore={variations.length < totalVariations ? handleLoadMore : undefined}
-          hasMore={variations.length < totalVariations}
-          generationId={id}
-        />
+      {/* Results + Assets tabs */}
+      {(variations.length > 0 || status?.status === 'succeeded') && (
+        <Tabs defaultValue={defaultTab}>
+          <TabsList className="mb-4">
+            <TabsTrigger value="scripts">Scripts & Variasi</TabsTrigger>
+            <TabsTrigger value="assets">
+              <ImageIcon className="w-4 h-4 mr-1.5" />
+              Image & Video
+            </TabsTrigger>
+          </TabsList>
+
+          <TabsContent value="scripts">
+            {variations.length > 0 && (
+              <ResultsDisplay
+                variations={variations}
+                totalCount={totalVariations}
+                themeCounts={status?.themeCounts}
+                onLoadMore={variations.length < totalVariations ? handleLoadMore : undefined}
+                hasMore={variations.length < totalVariations}
+                generationId={id}
+              />
+            )}
+          </TabsContent>
+
+          <TabsContent value="assets">
+            <SceneAssetPanel generationId={id} />
+          </TabsContent>
+        </Tabs>
       )}
 
       {/* Empty State */}

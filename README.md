@@ -1,73 +1,42 @@
-# IdeaMills - AI Creative Platform
+# IdeaMills
 
-IdeaMills is an AI-powered creative platform for generating marketing concepts, scripts, and storyboards. It leverages Large Language Models (LLMs) and Image Generation Models to automate the pre-production workflow.
+AI-powered platform untuk generate konsep iklan video — dari foto produk + keyword menjadi script, storyboard, visual prompt, dan video.
 
-## 🚀 Key Features
+## Pipeline
 
-- ✅ **Automated Storyboarding**: Generate detailed scripts and storyboards from product images and basic ideas.
-- ✅ **AI-Powered**: Uses OpenAI (GPT-4o/5.2) and Google Gemini for creative logic.
-- ✅ **Visual Intelligence**: Analyzes product images to ensure brand consistency.
-- ✅ **Local Architecture**: Fully self-contained with local MongoDB and file storage.
-- ✅ **Background Processing**: Dedicated worker system for handling long-running AI tasks.
+```
+Foto Produk + Keyword
+  → L0 Vision       — analisis produk & model
+  → L1 Ideation     — 50 angle marketing
+  → L2 Embed+Dedup  — filter → 20 tema unik
+  → L3 Scripting    — 20 tema × 5 = 100 script
+  → L5 Visual Prompt — text2img + img2vid prompt
+  → [manual] Generate Image → Generate Video
+```
 
-## 🏗️ Tech Stack
+Flow alternatif (enhanced): User memilih 1 ide kreatif dari UI → langsung generate N storyboard (tanpa ideation/embedding).
 
-- **Frontend**: Next.js 15 (App Router), React 18, Tailwind CSS, shadcn/ui
-- **Backend**: Next.js API Routes & Node.js Worker
-- **Database**: MongoDB (Local) with GridFS for image storage
-- **AI**: OpenAI (GPT-4o, DALL-E 3), Google Gemini
+## Tech Stack
 
-## 📦 Installation & Setup
+- **Next.js 15** (App Router) + React + Tailwind + shadcn/ui
+- **MongoDB** — database + GridFS (uploaded images) + job queue + rate limiter state
+- **OpenRouter** — single gateway untuk semua LLM calls (GPT, Claude, Gemini, DeepSeek, Cohere, Flux)
+- **useapi.net** — Google Flow Veo video generation
+- **Worker** — proses async pipeline, polling MongoDB queue
 
-### Prerequisites
+## Quick Start
 
-- Node.js 18+
-- MongoDB Community Edition (installed locally or via Docker)
-- OpenAI API Key
+```bash
+npm install
+cp .env.example .env.local   # isi OPENROUTER_API_KEY, USEAPI_TOKEN, MONGODB_URI
+./start.sh                   # jalankan MongoDB + Next.js dev + worker sekaligus
+```
 
-### Setup Steps
+Buka http://localhost:3000
 
-1.  **Clone the repository:**
-    ```bash
-    git clone <repo-url>
-    cd ideamills
-    ```
+## Docs
 
-2.  **Install dependencies:**
-    ```bash
-    npm install
-    ```
-
-3.  **Configure Environment:**
-    Copy the example configuration and add your API keys.
-    ```bash
-    cp .env.example .env.local
-    ```
-    *See `ENV.md` for detailed configuration instructions.*
-
-4.  **Start the System:**
-    Use the provided start script to launch MongoDB, the Next.js app, and the Worker simultaneously.
-    ```bash
-    ./start.sh
-    ```
-
-5.  **Access the App:**
-    Open [http://localhost:3000](http://localhost:3000) in your browser.
-
-## 📖 How to Use
-
-1.  **Input Details**: Enter product name, description, and upload product images.
-2.  **Configure**: Select target audience, platform (Instagram/TikTok), and duration.
-3.  **Generate Ideas**: Get AI-generated creative concepts.
-4.  **Create Storyboard**: Select a concept to generate a full Director's Script and visual storyboard.
-5.  **Review**: View the timeline, script, and generated images side-by-side.
-
-## 🏗️ Architecture
-
-The system uses a **monorepo** structure with a shared MongoDB database.
-
-*   **Next.js App**: Handles UI and API requests.
-*   **Worker**: Processes background jobs (AI generation).
-*   **MongoDB**: Stores generation data, scripts, and images (GridFS).
-
-For detailed technical specifications, please refer to `TECHNICAL_SPECIFICATIONS.md`.
+- **[docs/setup.md](docs/setup.md)** — instalasi, env vars, utility scripts, troubleshooting
+- **[docs/architecture.md](docs/architecture.md)** — struktur folder, LLM middleware, DB schema, worker
+- **[docs/tech-spec.md](docs/tech-spec.md)** — spesifikasi pipeline L0-L5, API routes, model config
+- **[CHANGELOG.md](CHANGELOG.md)** — riwayat perubahan

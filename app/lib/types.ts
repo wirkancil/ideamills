@@ -1,18 +1,36 @@
 // /app/lib/types.ts
-export type Engine = 'gpt-5.2' | 'gemini-2.5-flash';
+export type JobType = 'standard' | 'structured';
 
 export interface GenerationRequest {
-  productImageUrl: string;       // signed URL, not base64
-  modelImageUrl?: string | null; // signed URL or null
+  productImageUrl: string;
+  modelImageUrl?: string | null;
   basicIdea: string;
-  engine: Engine;
   visualOverrides?: string | null;
-  enhancedPrompt?: string;       // For enhanced flow
-  storyboardCount?: number;      // Optional storyboard count
+  enhancedPrompt?: string;
+  storyboardCount?: number;
 }
 
 export interface EnhancedGenerationRequest extends GenerationRequest {
-  enhancedPrompt: string;        // Required for enhanced flow
+  enhancedPrompt: string;
+}
+
+// Structured payload stored in JobQueue — replaces the loose string-based enhanced flow
+export interface GenerationJobPayload {
+  productImageUrl: string;
+  modelImageUrl?: string | null;
+  basicIdea: string;
+  storyboardCount: number;
+  job_type?: JobType;
+  // Structured context from UI steps (avoids re-parsing from string)
+  product?: Record<string, unknown>;
+  model?: Record<string, unknown> | null;
+  creativeIdea?: {
+    title: string;
+    concept: string;
+    storyline: string;
+    key_message?: string;
+    why_effective?: string;
+  };
 }
 
 export type SceneType = 'Hook' | 'Problem' | 'Solution' | 'CTA';
@@ -28,7 +46,7 @@ export interface Scene {
 export interface Variation {
   id: string;          // var_001..var_100
   theme: string;
-  directors_script?: any;
+  directors_script?: string;
   scenes: Scene[];     // 3–4 scenes
 }
 
@@ -40,7 +58,8 @@ export interface GenerationStatus {
   id: string;
   status: 'queued' | 'running' | 'processing' | 'partial' | 'succeeded' | 'failed' | 'canceled';
   progress: number;
-  engine: Engine;
+  progressLabel?: string;
+  engine?: string;
   productIdentifier?: string;
   counts?: {
     themes: number;
@@ -76,43 +95,72 @@ export interface ModelDescription {
   source: 'vision' | 'generic';
 }
 
-// Database types
+// Database types — reflect actual MongoDB documents
 export interface DBGeneration {
-  id: string;
-  idempotency_key: string;
-  tenant_id?: string;
+  _id: string;
+  idempotency_key?: string;
   product_identifier: string;
   model_identifier?: string;
-  engine: Engine;
-  overrides?: string;
-  status: string;
+  creative_idea_title?: string;
+  product_image_url?: string;
+  model_image_url?: string | null;
+  overrides?: string | null;
+  modelConfig?: Record<string, unknown>;
+  status: 'queued' | 'processing' | 'completed' | 'failed' | 'canceled';
   progress: number;
-  error?: string;
-  created_at: string;
+  progress_label?: string;
+  error_message?: string | null;
+  created_at: Date;
+  updated_at: Date;
 }
 
 export interface DBScript {
-  id: string;
+  _id: string;
   generation_id: string;
+  idea_id: string;
   theme: string;
   idx: number;
-  structure: any;
-  model_used: string;
-  token_in: number;
-  token_out: number;
-  latency_ms: number;
-  created_at: string;
+  directors_script?: string;
+  created_at: Date;
 }
 
 export interface DBScene {
-  id: string;
+  _id: string;
   script_id: string;
   order: number;
   struktur: SceneType;
   naskah_vo: string;
   visual_idea: string;
-  text_to_image?: string;
-  image_to_video?: string;
-  created_at: string;
+  text_to_image?: string | null;
+  image_to_video?: string | null;
+  image_status: AssetStatus;
+  video_status: AssetStatus;
+  image_source: 'ai' | 'user' | null;
+  image_error: string | null;
+  video_error: string | null;
+  generated_image_path?: string | null;
+  generated_video_path?: string | null;
+  created_at: Date;
+  updated_at?: Date;
+}
+
+export type AssetStatus = 'pending' | 'queued' | 'generating' | 'done' | 'failed';
+
+export interface SceneAssetState {
+  id: string;
+  scriptId: string;
+  order: number;
+  struktur: SceneType;
+  naskah_vo: string;
+  visual_idea: string;
+  text_to_image: string;
+  image_to_video: string;
+  image_status: AssetStatus;
+  image_source: 'ai' | 'user' | null;
+  image_url: string | null;
+  image_error: string | null;
+  video_status: AssetStatus;
+  video_url: string | null;
+  video_error: string | null;
 }
 

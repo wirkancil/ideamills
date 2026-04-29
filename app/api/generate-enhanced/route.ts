@@ -4,54 +4,90 @@ import { enqueueJob } from '@/app/lib/queue';
 import { z } from 'zod';
 import { getDb } from '@/app/lib/mongoClient';
 import { ObjectId } from 'mongodb';
+import { resolvePreset } from '@/app/lib/llm';
+import { MAX_QUEUE_DEPTH } from '@/app/lib/workerConfig';
+
+const PRESET_NAMES = ['fast', 'balanced', 'premium', 'custom'] as const;
+
+const ModelConfigSchema = z.object({
+  preset: z.enum(PRESET_NAMES).optional(),
+  vision: z.string().optional(),
+  ideation: z.string().optional(),
+  embedding: z.string().optional(),
+  scripting: z.string().optional(),
+  visualPrompt: z.string().optional(),
+  text2img: z.string().optional(),
+}).optional();
 
 const GenerateEnhancedRequestSchema = z.object({
-  enhancedPrompt: z.string().min(50),
+  // Images
   productImageUrl: z.string().url(),
   modelImageUrl: z.string().url().nullable().optional(),
-  engine: z.enum(['gpt-5.2', 'gemini-2.5-flash']),
-  basicIdea: z.string().optional(), // Optional for backward compatibility
-  storyboardCount: z.number().min(1).max(20).optional().default(5),
+
+  // User inputs
+  basicIdea: z.string().min(1),
+  storyboardCount: z.number().min(1).max(10).default(5),
+
+  // Structured context from UI steps
+  product: z.record(z.unknown()),
+  model: z.record(z.unknown()).nullable().optional(),
+  creativeIdea: z.object({
+    title: z.string(),
+    concept: z.string(),
+    storyline: z.string(),
+    key_message: z.string().optional(),
+    why_effective: z.string().optional(),
+  }),
+
+  modelConfig: ModelConfigSchema,
 });
 
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
 
-    // Validate request
     const validation = GenerateEnhancedRequestSchema.safeParse(body);
     if (!validation.success) {
       return NextResponse.json(
-        { error: 'Invalid request', details: validation.error.errors },
+        { error: 'Invalid request' },
         { status: 400 }
       );
     }
 
-    const { enhancedPrompt, productImageUrl, modelImageUrl, engine, basicIdea, storyboardCount } = validation.data;
-
-    console.log('🚀 Starting enhanced generation...');
-    console.log(`   Prompt length: ${enhancedPrompt.length} chars`);
-    console.log(`   Engine: ${engine}`);
-    console.log(`   Count: ${storyboardCount}`);
-
-    // Generate idempotency key based on enhanced prompt and count
-    const idempotencyKey = generateIdempotencyKey({
-      enhancedPrompt,
+    const {
       productImageUrl,
       modelImageUrl,
-      engine,
+      basicIdea,
       storyboardCount,
+      product,
+      model,
+      creativeIdea,
+      modelConfig: rawModelConfig,
+    } = validation.data;
+
+    const resolvedModelConfig = resolvePreset(rawModelConfig?.preset ?? 'balanced');
+    if (rawModelConfig) Object.assign(resolvedModelConfig, rawModelConfig);
+
+    const idempotencyKey = generateIdempotencyKey({
+      productImageUrl,
+      modelImageUrl,
+      basicIdea,
+      storyboardCount,
+      creativeIdea,
     });
 
-    // Check if generation already exists
     const db = await getDb();
-    const existing = await db.collection('Generations').findOne({ idempotency_key: idempotencyKey });
 
+    // Reject if queue is full
+    const pendingCount = await db.collection('JobQueue').countDocuments({ status: 'pending' });
+    if (pendingCount >= MAX_QUEUE_DEPTH) {
+      return NextResponse.json({ error: 'Server sedang sibuk. Coba lagi dalam beberapa menit.' }, { status: 503 });
+    }
+
+    const existing = await db.collection('Generations').findOne({ idempotency_key: idempotencyKey });
     if (existing) {
-      const existingId = existing._id instanceof ObjectId ? existing._id.toString() : String(existing._id);
-      console.log('✅ Found existing generation:', existingId);
       return NextResponse.json({
-        generationId: existingId,
+        generationId: existing._id instanceof ObjectId ? existing._id.toString() : String(existing._id),
         status: existing.status,
         cached: true,
       });
@@ -61,10 +97,12 @@ export async function POST(request: NextRequest) {
     const insertResult = await db.collection('Generations').insertOne({
       idempotency_key: idempotencyKey,
       product_identifier: 'enhanced-flow',
-      engine: engine,
+      creative_idea_title: creativeIdea.title,
+      product_image_url: productImageUrl,
+      model_image_url: modelImageUrl || null,
       status: 'queued',
       progress: 0,
-      overrides: enhancedPrompt,
+      modelConfig: resolvedModelConfig,
       error_message: null,
       created_at: now,
       updated_at: now,
@@ -76,36 +114,19 @@ export async function POST(request: NextRequest) {
 
     const generationId = insertResult.insertedId.toString();
 
-    // Enqueue job with enhanced prompt
-    try {
-      await enqueueJob(generationId, {
-        productImageUrl: 'enhanced-flow', // Special marker for enhanced flow
-        modelImageUrl: modelImageUrl || null,
-        basicIdea: 'Enhanced Flow',
-        engine,
-        enhancedPrompt, // Include in payload for backward compatibility
-        storyboardCount,
-      });
-      console.log(`✅ Enhanced job enqueued for generation ${generationId}`);
-    } catch (queueError) {
-      console.error('❌ Queue enqueue error:', queueError);
-      return NextResponse.json({
-        error: 'Failed to enqueue job',
-        details: queueError instanceof Error ? queueError.message : 'Unknown queue error'
-      }, { status: 500 });
-    }
-
-    return NextResponse.json({
-      generationId,
-      status: 'queued',
-      enhanced: true,
+    await enqueueJob(generationId, {
+      productImageUrl,
+      modelImageUrl: modelImageUrl || null,
+      basicIdea,
+      storyboardCount,
+      product,
+      model: model ?? null,
+      creativeIdea,
     });
 
+    return NextResponse.json({ generationId, status: 'queued' });
+
   } catch (error) {
-    console.error('❌ Enhanced generation error:', error);
-    return NextResponse.json({
-      error: 'Internal server error',
-      details: error instanceof Error ? error.message : 'Unknown error',
-    }, { status: 500 });
+    return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
   }
 }

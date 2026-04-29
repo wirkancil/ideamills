@@ -27,10 +27,7 @@ export async function POST(
     // Check if job exists
     const job = await db.collection('JobQueue').findOne({ generation_id: id });
     if (!job) {
-      return NextResponse.json({ 
-        error: 'Job data not found. Cannot retry.',
-        details: 'The job queue entry has been deleted or expired.'
-      }, { status: 404 });
+      return NextResponse.json({ error: 'Job not found. Cannot retry.' }, { status: 404 });
     }
 
     // Reset JobQueue
@@ -62,17 +59,9 @@ export async function POST(
       }
     );
 
-    return NextResponse.json({ 
-      success: true, 
-      message: 'Generation retried successfully',
-      id: id
-    });
+    return NextResponse.json({ ok: true, id });
 
   } catch (error) {
-    console.error('Retry error:', error);
-    return NextResponse.json({ 
-      error: 'Internal server error',
-      details: error instanceof Error ? error.message : 'Unknown error'
-    }, { status: 500 });
+    return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
   }
 }

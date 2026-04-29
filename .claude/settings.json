@@ -1,0 +1,31 @@
+{
+  "permissions": {
+    "allow": [
+      "WebFetch(domain:openrouter.ai)",
+      "Bash(rm -rf sql/ dist/ logs/)",
+      "Bash(rm -f server.log test-generation.js test.json test.png .tsxrc.json worker/simple-worker.ts worker/runGeneration.js worker/Technical_Spec_AI_Video_Pipeline.docx)",
+      "Bash(rm -rf worker/app/)",
+      "Bash(npx tsc *)",
+      "Bash(perl -i -pe 'if \\($. >= 722\\) { s/\\\\bpayload\\\\.\\(?!modelImageUrl\\\\b\\)/stdPayload./g }' /Users/mac/Documents/Bharata-AI/ideamills/worker/runGeneration.ts)",
+      "Read(//Users/mac/.claude/skills/**)",
+      "Read(//Users/mac/.agents/skills/nextjs-app-router-patterns/**)",
+      "Edit(/.claude/skills/ideamills-pm/**)",
+      "Bash(curl -s -o /dev/null -w \"%{http_code}\" \"https://openrouter.ai/api/v1/embeddings\")",
+      "Bash(curl -s \"https://openrouter.ai/api/v1/models?supported_parameters=embedding\")",
+      "Bash(python3 -c \"import json,sys; d=json.load\\(sys.stdin\\); print\\(json.dumps\\(d, indent=2\\)[:3000]\\)\")",
+      "Bash(curl -s \"https://openrouter.ai/api/v1/models/text-embedding\" -w \"\\\\nHTTP: %{http_code}\\\\n\")",
+      "Bash(curl -s \"https://openrouter.ai/api/v1/models?type=embedding\" -w \"\\\\nHTTP: %{http_code}\\\\n\")",
+      "Bash(python3 -c \"import json,sys; d=json.load\\(sys.stdin\\); print\\('count:', len\\(d.get\\('data',[]\\)\\)\\);  [print\\(m['id']\\) for m in d.get\\('data',[]\\)]\")",
+      "Bash(curl -s \"https://openrouter.ai/api/v1/models?modality=text-%3Evector\" -w \"\\\\nHTTP: %{http_code}\\\\n\")",
+      "Bash(curl -s \"https://openrouter.ai/api/v1/models/embeddings\")",
+      "Bash(python3 -c ' *)",
+      "Bash(curl -s \"https://openrouter.ai/api/v1/embeddings/models\")",
+      "Bash(grep -v \"generate-images\\\\|generate-videos\" echo \"---components---\" grep -rn \"console\\\\.\" /Users/mac/Documents/Bharata-AI/ideamills/app/components/ --include=\"*.tsx\" echo \"---worker/process exists?---\" ls /Users/mac/Documents/Bharata-AI/ideamills/app/api/worker/)",
+      "Bash(grep -E \"\\\\.tsx$\")"
+    ],
+    "additionalDirectories": [
+      "/Users/mac/Documents/Bharata-AI/ideamills/app/api/storage",
+      "/Users/mac/Documents/Bharata-AI/ideamills/.claude/skills"
+    ]
+  }
+}

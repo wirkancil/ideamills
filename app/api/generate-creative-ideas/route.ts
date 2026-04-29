@@ -1,187 +1,116 @@
 import { NextRequest, NextResponse } from 'next/server';
-import OpenAI from 'openai';
-import { GoogleGenerativeAI } from '@google/generative-ai';
 import { z } from 'zod';
+import { resolvePreset } from '@/app/lib/llm/registry';
+import { chatCompletion } from '@/app/lib/llm/client';
+import { parseJson, withRetry, logUsage } from '@/app/lib/llm/middleware';
 
-const openai = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY,
-});
-
-const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || '');
+const PRESET_NAMES = ['fast', 'balanced', 'premium', 'custom'] as const;
 
 const GenerateCreativeIdeasSchema = z.object({
   productAnalysis: z.any(),
   modelAnalysis: z.any().optional(),
   basicIdea: z.string().optional().default(''),
-  engine: z.enum(['gpt-5.2', 'gemini-2.5-flash', 'gemini-1.5-flash']).optional().default('gpt-5.2'),
+  preset: z.enum(PRESET_NAMES).optional().default('balanced'),
+  modelConfig: z.object({
+    preset: z.enum(PRESET_NAMES).optional(),
+    ideation: z.string().optional(),
+  }).optional(),
 });
 
-function cleanJson(text: string): string {
-  // Remove markdown code blocks if present
-  let cleaned = text.replace(/```json\n?|\n?```/g, '').trim();
-  
-  const firstOpenBrace = cleaned.indexOf('{');
-  const firstOpenBracket = cleaned.indexOf('[');
-  
-  let start = -1;
-  if (firstOpenBrace !== -1 && firstOpenBracket !== -1) {
-    start = Math.min(firstOpenBrace, firstOpenBracket);
-  } else if (firstOpenBrace !== -1) {
-    start = firstOpenBrace;
-  } else if (firstOpenBracket !== -1) {
-    start = firstOpenBracket;
-  }
-  
-  const lastCloseBrace = cleaned.lastIndexOf('}');
-  const lastCloseBracket = cleaned.lastIndexOf(']');
-  const end = Math.max(lastCloseBrace, lastCloseBracket);
-  
-  if (start !== -1 && end !== -1 && end > start) {
-    return cleaned.substring(start, end + 1);
-  }
-  
-  return cleaned;
-}
+const SYSTEM_PROMPT = `Kamu adalah Senior Creative Strategist dan Viral Content Creator untuk iklan produk Indonesia.
+
+Berdasarkan analisis produk dan ide dasar dari user, buat 3-5 konsep iklan video yang berbeda dan kreatif.
+
+Setiap konsep harus mencakup:
+1. Judul/angle yang menarik
+2. Konsep utama (1-2 kalimat)
+3. Storyline singkat (3-4 kalimat)
+4. Mengapa efektif untuk target audience
+
+Return JSON:
+{
+  "creativeIdeas": [
+    { "title": "...", "concept": "...", "storyline": "...", "why_effective": "..." }
+  ]
+}`;
 
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    
-    // Validate request
     const validation = GenerateCreativeIdeasSchema.safeParse(body);
     if (!validation.success) {
-      console.error('❌ Validation Error:', JSON.stringify(validation.error.errors, null, 2));
       return NextResponse.json(
-        { error: 'Invalid request', details: validation.error.errors },
+        { error: 'Invalid request' },
         { status: 400 }
       );
     }
 
-    const {
-      productAnalysis,
-      modelAnalysis,
-      basicIdea,
-      engine
-    } = validation.data;
+    const { productAnalysis, modelAnalysis, basicIdea, preset, modelConfig } = validation.data;
 
-    // Build product context
-    let productContext = `PRODUK: ${productAnalysis.brand || 'Tidak terdeteksi'} - ${productAnalysis.category || 'Tidak terdeteksi'}
-FORM FACTOR: ${productAnalysis.form_factor || 'Tidak terdeteksi'}
-MANFAAT UTAMA: ${productAnalysis.key_benefit || 'Tidak terdeteksi'}
-TARGET AUDIENCE: ${productAnalysis.target_audience || 'Tidak terdeteksi'}
-WARNA: ${productAnalysis.color_scheme || 'Tidak terdeteksi'}
-STYLE: ${productAnalysis.style || 'Tidak terdeteksi'}`;
+    // Resolve model — modelConfig.ideation overrides preset
+    const resolved = resolvePreset(modelConfig?.preset ?? preset);
+    const ideationModel = modelConfig?.ideation ?? resolved.ideation;
+
+    let productContext = `PRODUK: ${productAnalysis.brand || '-'} — ${productAnalysis.category || '-'}
+Bentuk: ${productAnalysis.form_factor || '-'}
+Manfaat Utama: ${productAnalysis.key_benefit || '-'}
+Target: ${productAnalysis.target_audience || '-'}
+Warna: ${productAnalysis.color_scheme || '-'}
+Style: ${productAnalysis.style || '-'}`;
 
     if (productAnalysis.notable_text) {
-      productContext += `\nTEKS PENTING: ${productAnalysis.notable_text}`;
+      productContext += `\nTeks Kemasan: ${productAnalysis.notable_text}`;
     }
-
+    if (productAnalysis.additional_notes) {
+      productContext += `\nCatatan: ${productAnalysis.additional_notes}`;
+    }
     if (modelAnalysis) {
-      productContext += `\n\nMODEL: ${modelAnalysis.age_range || 'Tidak terdeteksi'} tahun, ${modelAnalysis.gender || 'Tidak terdeteksi'}, ${modelAnalysis.ethnicity || 'Tidak terdeteksi'}`;
+      productContext += `\n\nMODEL: ${modelAnalysis.age_range || '-'}, ${modelAnalysis.gender || '-'}, ${modelAnalysis.ethnicity || '-'}`;
     }
 
-    const systemPrompt = `You are a Senior Creative Strategist and Viral Content Creator (Ahli Strategi Kreatif & Kreator Konten Viral).
-
-Your goal is to generate high-converting video ad concepts based on product and model analysis.
-You must adopt the persona of a marketing genius who understands audience psychology, trends, and brand storytelling.
-
-Based on the provided product analysis and user's basic idea, generate 3-5 distinct creative video ad concepts.
-
-Each concept must include:
-1. **The Hook**: A catchy title or angle.
-2.91→2. **The Angle**: Why this works for the target audience.
-92→3. **The Vibe**: The emotional tone (e.g., "High-energy", "Soothing", "Luxury").
-93→4. **Why it Sells**: The psychological trigger used.
-94→
-95→Format output: Return a JSON object with a "creativeIdeas" array containing the concepts:
-96→{
-97→  "creativeIdeas": [
-98→    {
-99→      "title": "...",
-100→      "concept": "...",
-101→      "storyline": "...",
-102→      "why_effective": "..."
-103→    }
-104→  ]
-105→}`;
-
-    const userPrompt = `IDE DASAR DARI USER: "${basicIdea}"
+    const userPrompt = `IDE DASAR: "${basicIdea || 'tidak ada'}"
 
 KONTEKS PRODUK:
 ${productContext}
 
-Buatlah 3-5 ide kreatif yang berbeda untuk kampanye iklan produk ini.`;
+Buatlah 3-5 ide kreatif iklan video yang berbeda untuk produk ini.`;
 
-    let content = '';
-
-    if (engine.startsWith('gemini')) {
-      const modelName = engine; // gemini-2.5-flash or gemini-1.5-flash
-      const model = genAI.getGenerativeModel({ model: modelName });
-      
-      const result = await model.generateContent({
-        contents: [
-          { role: 'user', parts: [{ text: systemPrompt + '\n\n' + userPrompt }] }
-        ],
-        generationConfig: {
-          maxOutputTokens: 8192,
-          responseMimeType: 'application/json',
-        },
-      });
-      content = result.response.text();
-    } else {
-      const response = await openai.chat.completions.create({
-        model: 'gpt-5.2',
+    const started = Date.now();
+    const res = await withRetry(() =>
+      chatCompletion({
+        model: ideationModel,
         messages: [
-          { role: 'system', content: systemPrompt },
-          { role: 'user', content: userPrompt }
+          { role: 'system', content: SYSTEM_PROMPT },
+          { role: 'user', content: userPrompt },
         ],
-        temperature: 0.8,
-        max_completion_tokens: 2000,
-        response_format: { type: 'json_object' } // Ensure JSON output
-      });
-      content = response.choices[0]?.message?.content || '';
-    }
+        max_tokens: 2000,
+        response_format: { type: 'json_object' },
+      })
+    );
 
-    if (!content) {
-      throw new Error(`No response from ${engine}`);
-    }
+    logUsage({
+      layer: 'ideation',
+      model: res.model,
+      promptTokens: res.usage?.prompt_tokens ?? 0,
+      completionTokens: res.usage?.completion_tokens ?? 0,
+      latencyMs: Date.now() - started,
+      costUsd: res.usage?.total_cost,
+      createdAt: new Date(),
+    });
 
-    // Try to parse JSON response
-    let creativeIdeas;
-    try {
-      const jsonContent = cleanJson(content);
-      // Handle wrapped JSON object if needed (e.g. { "ideas": [...] })
-      const parsed = JSON.parse(jsonContent);
-      if (Array.isArray(parsed)) {
-        creativeIdeas = parsed;
-      } else if (parsed.creativeIdeas && Array.isArray(parsed.creativeIdeas)) {
-        creativeIdeas = parsed.creativeIdeas;
-      } else if (parsed.ideas && Array.isArray(parsed.ideas)) {
-        creativeIdeas = parsed.ideas;
-      } else {
-         // Fallback: try to find an array in the object values
-         const arrayValue = Object.values(parsed).find(v => Array.isArray(v));
-         if (arrayValue) {
-           creativeIdeas = arrayValue;
-         } else {
-           creativeIdeas = [parsed]; // Treat as single item array if all else fails
-         }
-      }
-    } catch (parseError) {
-      console.error('Failed to parse JSON response. Raw content:', content);
-      console.error('Parse error:', parseError);
-      // Fallback: try to extract ideas from text manually or return error
-      throw new Error('Failed to parse AI response as JSON');
-    }
+    const raw = res.choices[0]?.message?.content ?? '';
+    const parsed = parseJson<{ creativeIdeas?: unknown[]; ideas?: unknown[] }>(raw);
 
-    return NextResponse.json({ creativeIdeas: creativeIdeas });
+    const creativeIdeas =
+      parsed.creativeIdeas ??
+      parsed.ideas ??
+      (Array.isArray(parsed) ? parsed : (Object.values(parsed).find(Array.isArray) ?? []));
 
+    return NextResponse.json({ creativeIdeas });
   } catch (error) {
-    console.error('Error generating creative ideas:', error);
     return NextResponse.json(
-      { error: 'Internal server error', details: error instanceof Error ? error.message : 'Unknown error' },
+      { error: 'Gagal generate ide kreatif' },
       { status: 500 }
     );
   }
 }
-

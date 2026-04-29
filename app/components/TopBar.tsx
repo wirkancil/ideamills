@@ -2,62 +2,54 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { Button } from './ui/button';
-import { Sparkles, History, BarChart3, Home } from 'lucide-react';
+import { Sparkles, History, Clapperboard, Images } from 'lucide-react';
 
 export function TopBar() {
   const pathname = usePathname();
 
-  const navItems = [
-    {
-      href: '/',
-      label: 'Beranda',
-      icon: Home,
-      active: pathname === '/'
-    },
-    {
-      href: '/dashboard',
-      label: 'Buat Ide',
-      icon: BarChart3,
-      active: pathname === '/dashboard'
-    },
-    {
-      href: '/history',
-      label: 'Riwayat',
-      icon: History,
-      active: pathname === '/history'
-    }
-  ];
-
   return (
-    <nav className="bg-white border-b border-gray-200 shadow-sm">
-      <div className="container mx-auto px-4">
-        <div className="flex items-center justify-between h-16">
-          {/* Logo */}
-          <Link href="/" className="flex items-center gap-3">
-            <Sparkles className="w-8 h-8 text-primary" />
-            <span className="text-xl font-bold bg-gradient-to-r from-purple-600 to-blue-600 bg-clip-text text-transparent">
-              IdeaMill
-            </span>
+    <nav className="border-b bg-background/95 backdrop-blur sticky top-0 z-40">
+      <div className="container mx-auto px-4 max-w-4xl">
+        <div className="flex items-center justify-between h-14">
+          <Link href="/" className="flex items-center gap-2">
+            <Sparkles className="w-5 h-5 text-primary" />
+            <span className="font-bold text-base">IdeaMills</span>
           </Link>
 
-          {/* Navigation */}
-          <div className="flex items-center space-x-1">
-            {navItems.map((item) => {
-              const Icon = item.icon;
-              return (
-                <Link key={item.href} href={item.href}>
-                  <Button
-                    variant={item.active ? "default" : "ghost"}
-                    className="flex items-center gap-2"
-                    size="sm"
-                  >
-                    <Icon className="w-4 h-4" />
-                    {item.label}
-                  </Button>
-                </Link>
-              );
-            })}
+          <div className="flex items-center gap-1">
+            <Link
+              href="/studio"
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium transition-colors ${
+                pathname === '/studio' || pathname === '/'
+                  ? 'bg-primary text-primary-foreground'
+                  : 'text-muted-foreground hover:text-foreground hover:bg-muted'
+              }`}
+            >
+              <Clapperboard className="w-4 h-4" />
+              Studio
+            </Link>
+            <Link
+              href="/assets"
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium transition-colors ${
+                pathname === '/assets'
+                  ? 'bg-primary text-primary-foreground'
+                  : 'text-muted-foreground hover:text-foreground hover:bg-muted'
+              }`}
+            >
+              <Images className="w-4 h-4" />
+              Aset
+            </Link>
+            <Link
+              href="/history"
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium transition-colors ${
+                pathname === '/history' || pathname.startsWith('/generations')
+                  ? 'bg-primary text-primary-foreground'
+                  : 'text-muted-foreground hover:text-foreground hover:bg-muted'
+              }`}
+            >
+              <History className="w-4 h-4" />
+              Riwayat
+            </Link>
           </div>
         </div>
       </div>

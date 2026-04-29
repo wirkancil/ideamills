@@ -47,7 +47,6 @@ function DirectorsScriptSection({
       const data = await res.json();
       setScript(data.directors_script);
     } catch (error) {
-      console.error(error);
       alert(`Gagal membuat naskah sutradara: ${error instanceof Error ? error.message : 'Unknown error'}`);
     } finally {
       setLoading(false);

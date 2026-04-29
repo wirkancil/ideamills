@@ -1,262 +1,199 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { useRouter } from 'next/navigation';
-import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
+import Link from 'next/link';
 import { Badge } from './ui/badge';
 import { Button } from './ui/button';
 import { Progress } from './ui/progress';
-import { Eye, Clock, CheckCircle, XCircle, Loader2, Sparkles } from 'lucide-react';
+import {
+  CheckCircle,
+  XCircle,
+  Loader2,
+  Clock,
+  Image as ImageIcon,
+  Video,
+  ChevronRight,
+  RefreshCw,
+  Sparkles,
+} from 'lucide-react';
 
-interface Generation {
+interface GenerationItem {
   id: string;
   status: 'queued' | 'processing' | 'completed' | 'failed';
   progress: number;
   product_identifier: string;
-  engine: string;
+  creative_idea_title?: string;
   created_at: string;
-  updated_at: string;
   error_message?: string;
-  overrides?: string;
+  image_count?: number;
+  video_count?: number;
+  script_count?: number;
 }
 
-interface GenerationHistoryProps {
-  showBackToDashboard?: boolean;
+const STATUS_CONFIG = {
+  completed: { label: 'Selesai', variant: 'default' as const, icon: CheckCircle, color: 'text-green-500' },
+  processing: { label: 'Proses', variant: 'secondary' as const, icon: Loader2, color: 'text-blue-500', spin: true },
+  queued: { label: 'Antrian', variant: 'outline' as const, icon: Clock, color: 'text-yellow-500' },
+  failed: { label: 'Gagal', variant: 'destructive' as const, icon: XCircle, color: 'text-red-500' },
+};
+
+function formatRelative(dateStr: string): string {
+  const diff = Date.now() - new Date(dateStr).getTime();
+  const m = Math.floor(diff / 60000);
+  const h = Math.floor(diff / 3600000);
+  const d = Math.floor(diff / 86400000);
+  if (m < 1) return 'baru saja';
+  if (m < 60) return `${m} menit lalu`;
+  if (h < 24) return `${h} jam lalu`;
+  return `${d} hari lalu`;
 }
 
 export function GenerationHistory() {
-  const router = useRouter();
-  const [generations, setGenerations] = useState<Generation[]>([]);
+  const [items, setItems] = useState<GenerationItem[]>([]);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const [offset, setOffset] = useState(0);
+  const [hasMore, setHasMore] = useState(false);
+  const LIMIT = 20;
 
-  // Function to extract theme/idea from generation data
-  const getGenerationTheme = (gen: Generation): string => {
-    // Try to get from overrides first
-    if (gen.overrides && typeof gen.overrides === 'string' && gen.overrides.length > 10) {
-      const cleanText = gen.overrides.replace(/[^\w\s.,!?-]/g, '').trim();
-      return cleanText.length > 80 ? cleanText.substring(0, 80) + '...' : cleanText;
-    }
-
-    // Create meaningful theme from ID and metadata
-    const idPrefix = gen.id.substring(0, 8);
-    const date = new Date(gen.created_at).toLocaleDateString('id-ID', {
-      day: '2-digit',
-      month: '2-digit',
-      year: '2-digit'
-    });
-
-    // Generate creative theme based on ID pattern and flow type
-    const themes = {
-      enhanced: [
-        `Kampanye Premium ${idPrefix}`,
-        `Ide Kreatif ${idPrefix}`,
-        `Konsep Branding ${idPrefix}`,
-        `Strategi Marketing ${idPrefix}`,
-        `Kampanye Digital ${idPrefix}`
-      ],
-      standard: [
-        `Proyek ${idPrefix}`,
-        `Kampanye ${idPrefix}`,
-        `Ide ${idPrefix}`,
-        `Konsep ${idPrefix}`,
-        `Proyek Kreatif ${idPrefix}`
-      ]
-    };
-
-    const isEnhanced = gen.product_identifier === 'enhanced-flow';
-    const themeOptions = themes[isEnhanced ? 'enhanced' : 'standard'];
-
-    // Use ID hash to deterministically select theme
-    const hash = gen.id.split('').reduce((a, b) => a + b.charCodeAt(0), 0);
-    const themeIndex = hash % themeOptions.length;
-
-    return `${themeOptions[themeIndex]} - ${date}`;
-  };
-
-  useEffect(() => {
-    fetchGenerations();
-  }, []);
-
-  const fetchGenerations = async () => {
+  const fetchGenerations = async (reset = false) => {
+    const currentOffset = reset ? 0 : offset;
     try {
-      setLoading(true);
-      const response = await fetch('/api/generations?limit=10');
-      if (!response.ok) {
-        throw new Error('Failed to fetch generations');
-      }
-      const data = await response.json();
-      setGenerations(data.generations || []);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to load generations');
+      const res = await fetch(`/api/generations?limit=${LIMIT}&offset=${currentOffset}`);
+      if (!res.ok) throw new Error('Gagal memuat data');
+      const data = await res.json();
+      const newItems: GenerationItem[] = data.generations ?? [];
+      setItems((prev) => (reset || currentOffset === 0) ? newItems : [...prev, ...newItems]);
+      setHasMore(newItems.length === LIMIT);
+      if (!reset && currentOffset === 0) setOffset(0);
+    } catch {
     } finally {
       setLoading(false);
     }
   };
 
-  const getStatusIcon = (status: string) => {
-    switch (status) {
-      case 'completed':
-        return <CheckCircle className="w-4 h-4 text-green-500" />;
-      case 'processing':
-        return <Loader2 className="w-4 h-4 text-blue-500 animate-spin" />;
-      case 'failed':
-        return <XCircle className="w-4 h-4 text-red-500" />;
-      case 'queued':
-        return <Clock className="w-4 h-4 text-yellow-500" />;
-      default:
-        return <Clock className="w-4 h-4 text-gray-500" />;
-    }
-  };
+  useEffect(() => {
+    fetchGenerations(true);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
-  const getStatusBadge = (status: string) => {
-    switch (status) {
-      case 'completed':
-        return <Badge variant="default" className="bg-green-100 text-green-800">Berhasil</Badge>;
-      case 'processing':
-        return <Badge variant="default" className="bg-blue-100 text-blue-800">Sedang Diproses</Badge>;
-      case 'failed':
-        return <Badge variant="destructive">Gagal</Badge>;
-      case 'queued':
-        return <Badge variant="secondary">Dalam Antrian</Badge>;
-      default:
-        return <Badge variant="outline">{status}</Badge>;
-    }
-  };
+  // Poll while any job is active
+  useEffect(() => {
+    const hasActive = items.some((i) => i.status === 'queued' || i.status === 'processing');
+    if (!hasActive) return;
+    const interval = setInterval(() => fetchGenerations(true), 5000);
+    return () => clearInterval(interval);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [items]);
 
-  const formatDate = (dateString: string) => {
-    return new Date(dateString).toLocaleString('id-ID', {
-      day: '2-digit',
-      month: '2-digit',
-      year: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit'
-    });
-  };
-
-  const handleViewGeneration = (id: string) => {
-    router.push(`/generations/${id}`);
+  const handleLoadMore = () => {
+    const nextOffset = offset + LIMIT;
+    setOffset(nextOffset);
+    fetchGenerations();
   };
 
   if (loading) {
     return (
-      <Card className="w-full">
-        <CardContent className="flex items-center justify-center py-12">
-          <div className="flex items-center gap-2">
-            <Loader2 className="w-6 h-6 animate-spin" />
-            <span>Memuat riwayat kampanye...</span>
+      <div className="space-y-2">
+        {Array.from({ length: 5 }).map((_, i) => (
+          <div key={i} className="flex items-center gap-3 p-3 rounded-lg border animate-pulse">
+            <div className="w-4 h-4 rounded-full bg-muted shrink-0" />
+            <div className="flex-1 space-y-2">
+              <div className="flex items-center gap-2">
+                <div className="h-3.5 bg-muted rounded w-40" />
+                <div className="h-4 bg-muted rounded w-12" />
+              </div>
+              <div className="h-2.5 bg-muted rounded w-24" />
+            </div>
+            <div className="w-4 h-4 bg-muted rounded shrink-0" />
           </div>
-        </CardContent>
-      </Card>
+        ))}
+      </div>
     );
   }
 
-  if (error) {
+  if (items.length === 0) {
     return (
-      <Card className="w-full">
-        <CardContent className="flex items-center justify-center py-12">
-          <div className="text-center">
-            <XCircle className="w-12 h-12 text-red-500 mx-auto mb-4" />
-            <h3 className="text-lg font-semibold text-red-600 mb-2">Terjadi Kesalahan</h3>
-            <p className="text-muted-foreground mb-4">{error}</p>
-            <Button
-              variant="outline"
-              onClick={fetchGenerations}
-            >
-              Muat Ulang
-            </Button>
-          </div>
-        </CardContent>
-      </Card>
-    );
-  }
-
-  if (generations.length === 0) {
-    return (
-      <Card className="w-full">
-        <CardContent className="flex flex-col items-center justify-center py-12">
-          <Sparkles className="w-12 h-12 text-gray-400 mb-4" />
-          <h3 className="text-lg font-medium text-gray-600 mb-2">Belum Ada Kampanye</h3>
-          <p className="text-gray-500 text-center max-w-md">
-            Anda belum membuat kampanye iklan apapun. Kunjungi halaman &quot;Buat Ide&quot; untuk memulai membuat kampanye pertama Anda.
-          </p>
-        </CardContent>
-      </Card>
+      <div className="text-center py-16 space-y-3">
+        <Sparkles className="w-10 h-10 text-muted-foreground mx-auto" />
+        <p className="text-muted-foreground">Belum ada generation.</p>
+        <Link href="/studio">
+          <Button size="sm">Buat Video</Button>
+        </Link>
+      </div>
     );
   }
 
   return (
-    <div className="space-y-4">
-      {generations.map((gen) => (
-        <Card key={gen.id} className="w-full hover:shadow-md transition-shadow">
-          <CardHeader className="pb-4">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-3">
-                {getStatusIcon(gen.status)}
-                <div className="flex-1">
-                  <CardTitle className="text-lg leading-tight">
-                    {getGenerationTheme(gen)}
-                  </CardTitle>
-                  <p className="text-sm text-muted-foreground mt-1">
-                    {gen.product_identifier === 'enhanced-flow' ? 'Flow Enhanced' : 'Flow Standard'} • {gen.engine === 'gpt-5.2' ? 'GPT-5.2' : gen.engine === 'gpt-4o' ? 'GPT-4o' : 'Gemini 2.5 Flash'}
-                  </p>
-                </div>
-              </div>
-              {getStatusBadge(gen.status)}
-            </div>
-          </CardHeader>
+    <div className="space-y-2">
+      <div className="flex items-center justify-between mb-4">
+        <p className="text-sm text-muted-foreground">{items.length} generation</p>
+        <Button variant="ghost" size="sm" onClick={() => fetchGenerations(true)} className="h-7 text-xs">
+          <RefreshCw className="w-3 h-3 mr-1" />
+          Refresh
+        </Button>
+      </div>
 
-          <CardContent>
-            <div className="space-y-4">
-              {/* Progress Bar */}
-              {(gen.status === 'processing' || gen.status === 'completed') && (
-                <div>
-                  <div className="flex justify-between text-sm mb-2">
-                    <span>Progress</span>
-                    <span>{gen.progress}%</span>
+      {items.map((item) => {
+        const cfg = STATUS_CONFIG[item.status] ?? STATUS_CONFIG.queued;
+        const Icon = cfg.icon;
+        const isActive = item.status === 'queued' || item.status === 'processing';
+
+        return (
+          <Link key={item.id} href={`/generations/${item.id}`}>
+            <div className="flex items-center gap-3 p-3 rounded-lg border hover:bg-muted/50 transition-colors group">
+              {/* Status icon */}
+              <Icon className={`w-4 h-4 shrink-0 ${cfg.color} ${'spin' in cfg && cfg.spin ? 'animate-spin' : ''}`} />
+
+              {/* Main info */}
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span className="text-sm font-medium truncate">
+                    {item.product_identifier === 'enhanced-flow'
+                      ? (item.creative_idea_title?.slice(0, 40) || `Iklan #${item.id.slice(-6)}`)
+                      : item.product_identifier?.slice(0, 40) || `Job ${item.id.slice(-6)}`}
+                  </span>
+                  <Badge variant={cfg.variant} className="text-xs h-5">{cfg.label}</Badge>
+                </div>
+
+                {/* Progress bar for active jobs */}
+                {isActive && (
+                  <div className="mt-1.5">
+                    <Progress value={item.progress} className="h-1" />
                   </div>
-                  <Progress value={gen.progress} className="h-2" />
-                </div>
-              )}
+                )}
 
-              {/* Error Message */}
-              {gen.status === 'failed' && gen.error_message && (
-                <div className="bg-red-50 border border-red-200 rounded-lg p-3">
-                  <p className="text-sm text-red-700">
-                    <strong>Error:</strong> {gen.error_message}
-                  </p>
+                {/* Asset counts + date */}
+                <div className="flex items-center gap-3 mt-1 text-xs text-muted-foreground flex-wrap">
+                  <span>{formatRelative(item.created_at)}</span>
+                  {item.script_count != null && (
+                    <span>{item.script_count} scripts</span>
+                  )}
+                  {item.image_count != null && item.image_count > 0 && (
+                    <span className="flex items-center gap-0.5">
+                      <ImageIcon className="w-3 h-3" />{item.image_count}
+                    </span>
+                  )}
+                  {item.video_count != null && item.video_count > 0 && (
+                    <span className="flex items-center gap-0.5">
+                      <Video className="w-3 h-3" />{item.video_count}
+                    </span>
+                  )}
+                  {item.status === 'failed' && item.error_message && (
+                    <span className="text-destructive truncate max-w-[200px]">{item.error_message}</span>
+                  )}
                 </div>
-              )}
-
-              {/* Dates */}
-              <div className="flex justify-between text-sm text-muted-foreground">
-                <span>Dibuat: {formatDate(gen.created_at)}</span>
-                <span>Diupdate: {formatDate(gen.updated_at)}</span>
               </div>
 
-              {/* Actions */}
-              <div className="flex justify-end">
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => handleViewGeneration(gen.id)}
-                  className="flex items-center gap-2"
-                >
-                  <Eye className="w-4 h-4" />
-                  Lihat Hasil
-                </Button>
-              </div>
+              <ChevronRight className="w-4 h-4 text-muted-foreground shrink-0 group-hover:text-foreground transition-colors" />
             </div>
-          </CardContent>
-        </Card>
-      ))}
+          </Link>
+        );
+      })}
 
-      {generations.length >= 10 && (
-        <div className="text-center">
-          <Button variant="outline" onClick={fetchGenerations}>
-            Muat Lebih Banyak
-          </Button>
-        </div>
+      {hasMore && (
+        <Button variant="outline" size="sm" className="w-full mt-2" onClick={handleLoadMore}>
+          Muat lebih banyak
+        </Button>
       )}
     </div>
   );

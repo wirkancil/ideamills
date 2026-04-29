@@ -1,89 +1,109 @@
-// MongoDB Queue Worker - Polling System
-// Load env FIRST before any other imports
 import dotenv from 'dotenv';
 import path from 'path';
+import os from 'os';
 dotenv.config({ path: path.join(process.cwd(), '.env.local') });
 
-const POLL_INTERVAL_MS = 2000; // Check every 2 seconds
-const MAX_CONCURRENT = 4; // Max concurrent jobs
+import { STANDARD_CONCURRENCY, STRUCTURED_CONCURRENCY } from '../app/lib/workerConfig';
 
-let activeJobs = 0;
+const POLL_INTERVAL_MS = 2000;
+const STUCK_RECOVERY_INTERVAL_MS = 5 * 60 * 1000;
+
+// Unique identity for this worker process — used for stuck-job safety
+const WORKER_ID = `${os.hostname()}:${process.pid}`;
+
+let activeStandard = 0;
+let activeStructured = 0;
 
 async function bootstrap() {
-  // Dynamic imports to ensure environment variables are loaded first
-  const { dequeueJob, completeJob, failJob, getPendingJobCount } = await import('../app/lib/queue');
+  const { dequeueJob, completeJob, failJob, getPendingJobCount, recoverStuckJobs } =
+    await import('../app/lib/queue');
   const { runGeneration } = await import('./runGeneration');
+  const { recordCompletion } = await import('../app/lib/workerStats');
 
-  /**
-   * Process a single job
-   */
-  async function processJob() {
-    if (activeJobs >= MAX_CONCURRENT) {
-      return; // Wait for slot to free up
-    }
+  async function processJob(type: 'standard' | 'structured') {
+    const isStandard = type === 'standard';
+    if (isStandard && activeStandard >= STANDARD_CONCURRENCY) return;
+    if (!isStandard && activeStructured >= STRUCTURED_CONCURRENCY) return;
 
-    const job = await dequeueJob();
-    if (!job) {
-      return; // No jobs available
-    }
+    const job = await dequeueJob(type, WORKER_ID);
+    if (!job) return;
 
-    activeJobs++;
-    console.log(`[Worker] Processing job ${job.id} for generation ${job.generation_id}`);
-    console.log(`[Worker] Active jobs: ${activeJobs}/${MAX_CONCURRENT}`);
+    if (isStandard) activeStandard++; else activeStructured++;
+    const startedAt = Date.now();
+
+    console.log(
+      `[Worker:${WORKER_ID}] ${type} job ${job.id.slice(-6)} started` +
+      ` — std:${activeStandard}/${STANDARD_CONCURRENCY} str:${activeStructured}/${STRUCTURED_CONCURRENCY}`
+    );
 
     try {
       await runGeneration(job.generation_id, job.payload);
       await completeJob(job.id);
-      console.log(`[Worker] ✅ Job ${job.id} completed successfully`);
+      const durationMs = Date.now() - startedAt;
+      await recordCompletion(type, durationMs, job.id);
+      console.log(`[Worker] Job ${job.id.slice(-6)} done in ${Math.round(durationMs / 1000)}s`);
     } catch (error) {
-      console.error(`[Worker] ❌ Job ${job.id} failed:`, error);
-      await failJob(job.id, String(error));
+      const msg = error instanceof Error ? error.message : String(error);
+      console.error(`[Worker] Job ${job.id.slice(-6)} failed: ${msg}`);
+      await failJob(job.id, msg);
     } finally {
-      activeJobs--;
+      if (isStandard) activeStandard--; else activeStructured--;
     }
   }
 
-  /**
-   * Main worker loop
-   */
+  // Periodic stuck-job recovery — exclude this worker's own jobs
+  setInterval(async () => {
+    try {
+      const recovered = await recoverStuckJobs(15 * 60 * 1000, [WORKER_ID]);
+      if (recovered > 0) console.log(`[Worker] Recovered ${recovered} stuck job(s)`);
+    } catch (e) {
+      console.error('[Worker] Stuck recovery error:', e);
+    }
+  }, STUCK_RECOVERY_INTERVAL_MS);
+
   async function workerLoop() {
-    console.log('[Worker] Starting queue worker...');
-    console.log(`[Worker] Poll interval: ${POLL_INTERVAL_MS}ms`);
-    console.log(`[Worker] Max concurrent: ${MAX_CONCURRENT}`);
+    console.log(
+      `[Worker] ${WORKER_ID} started` +
+      ` — std concurrency: ${STANDARD_CONCURRENCY}, structured: ${STRUCTURED_CONCURRENCY}`
+    );
 
     while (true) {
       try {
-        // Check for pending jobs
-        const pendingCount = await getPendingJobCount();
-        
-        if (pendingCount > 0) {
-          console.log(`[Worker] ${pendingCount} pending jobs, ${activeJobs} active`);
-          
-          // Process jobs up to max concurrent limit
-          const slotsAvailable = MAX_CONCURRENT - activeJobs;
-          for (let i = 0; i < slotsAvailable; i++) {
-            processJob().catch(console.error); // Fire and forget
+        const [pendingStd, pendingStr] = await Promise.all([
+          getPendingJobCount('standard'),
+          getPendingJobCount('structured'),
+        ]);
+
+        // Fill standard slots
+        if (pendingStd > 0) {
+          const slots = STANDARD_CONCURRENCY - activeStandard;
+          for (let i = 0; i < slots; i++) {
+            processJob('standard').catch((e) => console.error('[Worker] Unhandled:', e));
+          }
+        }
+
+        // Fill structured slots
+        if (pendingStr > 0) {
+          const slots = STRUCTURED_CONCURRENCY - activeStructured;
+          for (let i = 0; i < slots; i++) {
+            processJob('structured').catch((e) => console.error('[Worker] Unhandled:', e));
           }
         }
       } catch (error) {
-        console.error('[Worker] Error in worker loop:', error);
+        console.error('[Worker] Loop error:', error);
       }
 
-      // Wait before next poll
       await new Promise((resolve) => setTimeout(resolve, POLL_INTERVAL_MS));
     }
   }
 
-  // Start loop
-  console.log('🚀 IdeaMill Worker - MongoDB Queue');
-  console.log('=====================================\n');
+  console.log('🚀 IdeaMills Worker');
   await workerLoop();
 }
 
-// Start worker
 if (require.main === module) {
   bootstrap().catch((error) => {
-    console.error('Fatal worker error:', error);
+    console.error('[Worker] Fatal:', error);
     process.exit(1);
   });
 }
