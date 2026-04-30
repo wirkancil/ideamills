@@ -45,24 +45,27 @@ function validateEnvFile(): ValidationResult[] {
     validate?: (value: string) => { valid: boolean; message?: string };
   }> = [
     {
-      key: 'OPENAI_API_KEY',
+      key: 'OPENROUTER_API_KEY',
       required: true,
       validate: (v) => ({
-        valid: v.startsWith('sk-') && v.length > 20,
-        message: v.includes('your_') ? 'Placeholder detected! Ganti dengan API key asli' : undefined,
+        valid: v.startsWith('sk-or-') && v.length > 20,
+        message: v.includes('your_') ? 'Placeholder detected! Ganti dengan API key asli dari openrouter.ai/keys' : undefined,
       }),
     },
     {
-      key: 'OPENAI_EMBED_MODEL',
+      key: 'USEAPI_TOKEN',
       required: true,
-      validate: (v) => ({ valid: v === 'text-embedding-3-small' }),
+      validate: (v) => ({
+        valid: v.length > 10,
+        message: v.includes('your_') ? 'Placeholder detected! Ganti dengan token dari useapi.net/dashboard' : undefined,
+      }),
     },
     {
-      key: 'GEMINI_API_KEY',
-      required: false,
+      key: 'USEAPI_GOOGLE_EMAIL',
+      required: true,
       validate: (v) => ({
-        valid: !v || v.startsWith('AIza'),
-        message: v.includes('your_') ? 'Skip atau ganti dengan API key asli' : undefined,
+        valid: v.includes('@'),
+        message: 'Format email tidak valid',
       }),
     },
     {
@@ -74,15 +77,15 @@ function validateEnvFile(): ValidationResult[] {
       }),
     },
     {
-        key: 'MONGODB_DB',
-        required: false,
-        validate: (v) => ({ valid: v.length > 0 })
+      key: 'MONGODB_DB',
+      required: false,
+      validate: (v) => ({ valid: v.length > 0 }),
     },
     {
-        key: 'MONGODB_BUCKET',
-        required: false,
-        validate: (v) => ({ valid: v.length > 0 })
-    }
+      key: 'MONGODB_BUCKET',
+      required: false,
+      validate: (v) => ({ valid: v.length > 0 }),
+    },
   ];
 
   const results: ValidationResult[] = rules.map((rule) => {

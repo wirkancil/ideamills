@@ -4,40 +4,31 @@ export interface ModelEntry {
   id: string;
   label: string;
   tier: 'budget' | 'balanced' | 'premium';
-  dim?: number;
   note?: string;
 }
 
+// Model IDs follow OpenRouter format: provider/model
+// See https://openrouter.ai/api/v1/models for full list.
 export const MODEL_REGISTRY: Record<LayerName, ModelEntry[]> = {
   vision: [
-    { id: 'openai/gpt-5', label: 'GPT-5', tier: 'premium' },
-    { id: 'anthropic/claude-sonnet-4.6', label: 'Claude Sonnet 4.6', tier: 'premium' },
-    { id: 'google/gemini-2.5-pro', label: 'Gemini 2.5 Pro', tier: 'balanced' },
     { id: 'google/gemini-2.5-flash', label: 'Gemini 2.5 Flash', tier: 'budget' },
+    { id: 'google/gemini-2.5-pro', label: 'Gemini 2.5 Pro', tier: 'balanced' },
+    { id: 'anthropic/claude-sonnet-4.6', label: 'Claude Sonnet 4.6', tier: 'premium' },
+    { id: 'openai/gpt-5', label: 'GPT-5', tier: 'premium' },
   ],
 
   ideation: [
     { id: 'google/gemini-2.5-flash', label: 'Gemini 2.5 Flash', tier: 'budget' },
     { id: 'google/gemini-2.5-pro', label: 'Gemini 2.5 Pro', tier: 'balanced' },
-    { id: 'deepseek/deepseek-v3.2', label: 'DeepSeek V3.2', tier: 'budget' },
+    { id: 'deepseek/deepseek-v3.2-exp', label: 'DeepSeek V3.2', tier: 'budget' },
     { id: 'anthropic/claude-sonnet-4.6', label: 'Claude Sonnet 4.6', tier: 'premium' },
     { id: 'openai/gpt-5', label: 'GPT-5', tier: 'premium' },
-  ],
-
-  embedding: [
-    { id: 'openai/text-embedding-3-small', label: 'OpenAI Small', tier: 'budget', dim: 1536 },
-    { id: 'openai/text-embedding-3-large', label: 'OpenAI Large', tier: 'premium', dim: 3072 },
-    { id: 'qwen/qwen3-embedding-8b', label: 'Qwen3 Embedding 8B', tier: 'balanced', dim: 1024, note: 'Multilingual, context 32K' },
-    { id: 'baai/bge-m3', label: 'BGE-M3', tier: 'budget', dim: 1024, note: 'Multilingual 100+ langs' },
-    { id: 'intfloat/multilingual-e5-large', label: 'Multilingual E5 Large', tier: 'balanced', dim: 1024, note: 'Multilingual 90+ langs' },
-    { id: 'google/gemini-embedding-001', label: 'Gemini Embedding 001', tier: 'premium', dim: 768, note: 'MTEB top-ranked, multilingual' },
-    { id: 'nvidia/llama-nemotron-embed-vl-1b-v2:free', label: 'Nemotron Embed (Free)', tier: 'budget', dim: 1024, note: 'Free, context 131K' },
   ],
 
   scripting: [
     { id: 'google/gemini-2.5-flash', label: 'Gemini 2.5 Flash', tier: 'budget' },
     { id: 'google/gemini-2.5-pro', label: 'Gemini 2.5 Pro', tier: 'balanced' },
-    { id: 'deepseek/deepseek-v3.2', label: 'DeepSeek V3.2', tier: 'budget' },
+    { id: 'deepseek/deepseek-v3.2-exp', label: 'DeepSeek V3.2', tier: 'budget' },
     { id: 'anthropic/claude-sonnet-4.6', label: 'Claude Sonnet 4.6', tier: 'premium' },
     { id: 'openai/gpt-5', label: 'GPT-5', tier: 'premium' },
   ],
@@ -45,26 +36,27 @@ export const MODEL_REGISTRY: Record<LayerName, ModelEntry[]> = {
   visualPrompt: [
     { id: 'anthropic/claude-sonnet-4.6', label: 'Claude Sonnet 4.6', tier: 'premium' },
     { id: 'openai/gpt-5', label: 'GPT-5', tier: 'premium' },
-    { id: 'deepseek/deepseek-v3.2', label: 'DeepSeek V3.2', tier: 'budget' },
-  ],
-
-  text2img: [
-    { id: 'google/gemini-2.5-flash-image', label: 'Gemini 2.5 Flash Image', tier: 'balanced' },
-    { id: 'google/gemini-3.1-flash-image-preview', label: 'Gemini 3.1 Flash Image (Preview)', tier: 'premium' },
+    { id: 'deepseek/deepseek-v3.2-exp', label: 'DeepSeek V3.2', tier: 'budget' },
   ],
 
   ideas: [
     { id: 'google/gemini-2.5-flash', label: 'Gemini 2.5 Flash', tier: 'budget' },
     { id: 'google/gemini-2.5-pro', label: 'Gemini 2.5 Pro', tier: 'balanced' },
-    { id: 'deepseek/deepseek-v3.2', label: 'DeepSeek V3.2', tier: 'budget' },
+    { id: 'deepseek/deepseek-v3.2-exp', label: 'DeepSeek V3.2', tier: 'budget' },
+    { id: 'z-ai/glm-4.6:free', label: 'GLM 4.6 (free)', tier: 'budget', note: 'Free tier — rate-limited' },
+    { id: 'x-ai/grok-4', label: 'Grok 4', tier: 'balanced' },
     { id: 'anthropic/claude-sonnet-4.6', label: 'Claude Sonnet 4.6', tier: 'premium' },
+    { id: 'openai/gpt-5', label: 'GPT-5', tier: 'premium' },
   ],
 
   expand: [
     { id: 'google/gemini-2.5-flash', label: 'Gemini 2.5 Flash', tier: 'budget' },
     { id: 'google/gemini-2.5-pro', label: 'Gemini 2.5 Pro', tier: 'balanced' },
-    { id: 'deepseek/deepseek-v3.2', label: 'DeepSeek V3.2', tier: 'budget' },
+    { id: 'deepseek/deepseek-v3.2-exp', label: 'DeepSeek V3.2', tier: 'budget' },
+    { id: 'z-ai/glm-4.6:free', label: 'GLM 4.6 (free)', tier: 'budget', note: 'Free tier — rate-limited' },
+    { id: 'x-ai/grok-4', label: 'Grok 4', tier: 'balanced' },
     { id: 'anthropic/claude-sonnet-4.6', label: 'Claude Sonnet 4.6', tier: 'premium' },
+    { id: 'openai/gpt-5', label: 'GPT-5', tier: 'premium' },
   ],
 };
 
@@ -72,36 +64,30 @@ export const PRESETS: Record<Exclude<PresetName, 'custom'>, Omit<ModelConfig, 'p
   fast: {
     vision: 'google/gemini-2.5-flash',
     ideation: 'google/gemini-2.5-flash',
-    embedding: 'openai/text-embedding-3-small',
     scripting: 'google/gemini-2.5-flash',
-    visualPrompt: 'deepseek/deepseek-v3.2',
-    text2img: 'google/gemini-2.5-flash-image',
+    visualPrompt: 'google/gemini-2.5-flash',
     ideas: 'google/gemini-2.5-flash',
-    expand: 'google/gemini-2.5-flash',
+    expand: 'google/gemini-2.5-pro',
   },
   balanced: {
     vision: 'google/gemini-2.5-pro',
     ideation: 'google/gemini-2.5-flash',
-    embedding: 'openai/text-embedding-3-small',
     scripting: 'google/gemini-2.5-flash',
     visualPrompt: 'anthropic/claude-sonnet-4.6',
-    text2img: 'google/gemini-2.5-flash-image',
     ideas: 'google/gemini-2.5-flash',
-    expand: 'deepseek/deepseek-v3.2',
+    expand: 'deepseek/deepseek-v3.2-exp',
   },
   premium: {
     vision: 'anthropic/claude-sonnet-4.6',
     ideation: 'google/gemini-2.5-pro',
-    embedding: 'openai/text-embedding-3-large',
     scripting: 'google/gemini-2.5-pro',
     visualPrompt: 'anthropic/claude-sonnet-4.6',
-    text2img: 'google/gemini-3.1-flash-image-preview',
     ideas: 'anthropic/claude-sonnet-4.6',
     expand: 'anthropic/claude-sonnet-4.6',
   },
 };
 
-export const DEFAULT_PRESET: Exclude<PresetName, 'custom'> = 'balanced';
+export const DEFAULT_PRESET: Exclude<PresetName, 'custom'> = 'fast';
 
 export function resolvePreset(preset: PresetName = DEFAULT_PRESET): ModelConfig {
   if (preset === 'custom') {

@@ -77,6 +77,7 @@ export interface DBGeneration {
   error_message?: string | null;
   first_frame?: 'model' | 'product';
   veo_model?: 'veo-3.1-fast' | 'veo-3.1-quality';
+  aspect_ratio?: 'landscape' | 'portrait';
   created_at: Date;
   updated_at: Date;
 }

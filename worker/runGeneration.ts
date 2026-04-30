@@ -1,7 +1,6 @@
 import { ObjectId } from 'mongodb';
 import { getDb } from '../app/lib/mongoClient';
 import { uploadImageAsset, createVideoJob, waitForVideo } from '../app/lib/useapi';
-import { generateImage, resolvePreset } from '../app/lib/llm';
 import { saveImage, downloadAndSaveVideo, storagePathToUrl } from '../app/lib/storage';
 import type { Clip, ClipImageMode } from '../app/lib/types';
 
@@ -80,11 +79,10 @@ async function runV2StudioGeneration(generationId: string, payload: V2Payload) {
   const gen = await db.collection('Generations').findOne({ _id: oid });
   if (!gen) throw new Error(`Generation ${generationId} not found`);
 
-  const styleNotes = (gen.styleNotes ?? '') as string;
   const allClips = (gen.clips ?? []) as Clip[];
   const productImageUrl = gen.product_image_url as string;
-  const modelConfig = gen.modelConfig ?? resolvePreset('balanced');
   const veoModel = (gen.veo_model as string | undefined) ?? 'veo-3.1-fast';
+  const aspectRatio = (gen.aspect_ratio as 'landscape' | 'portrait' | undefined) ?? 'landscape';
 
   const clipsToProcess =
     typeof payload.v2RegenerateClipIndex === 'number'
@@ -108,7 +106,7 @@ async function runV2StudioGeneration(generationId: string, payload: V2Payload) {
 
   await processWithConcurrency(clipsToProcess, CLIP_CONCURRENCY, async (clip) => {
     try {
-      await generateClipAssets(generationId, clip, styleNotes, productImageUrl, modelConfig, veoModel);
+      await generateClipAssets(generationId, clip, productImageUrl, veoModel, aspectRatio);
     } catch (err) {
       const errMsg = err instanceof Error ? err.message : String(err);
       await db.collection('Generations').updateOne(
@@ -155,10 +153,9 @@ async function runV2StudioGeneration(generationId: string, payload: V2Payload) {
 async function generateClipAssets(
   generationId: string,
   clip: Clip,
-  styleNotes: string,
   productImageUrl: string,
-  modelConfig: unknown,
-  veoModel: string
+  veoModel: string,
+  aspectRatio: 'landscape' | 'portrait'
 ) {
   const db = await getDb();
   const oid = new ObjectId(generationId);
@@ -179,16 +176,15 @@ async function generateClipAssets(
     if (!clip.imageDataUrl) throw new Error('imageMode=override missing imageDataUrl');
     imageData = clip.imageDataUrl;
   } else {
-    // ai-generate: build image prompt with style notes + clip prompt
-    const imagePrompt = styleNotes ? `${styleNotes}\n\n${clip.prompt}` : clip.prompt;
-    const imgRes = await generateImage(
-      imagePrompt,
-      { aspectRatio: '16:9' },
-      modelConfig as Parameters<typeof generateImage>[2],
-      generationId
-    );
-    imageData = imgRes.images[0];
-    const imageFilePath = await saveImage(imageData, generationId, `clip-${clip.index}.jpg`);
+    // ai-generate: imageDataUrl sudah dibuat di frontend lewat /api/studio/generate-image preview
+    if (!clip.imageDataUrl) {
+      throw new Error('imageMode=ai-generate missing imageDataUrl (preview tidak di-generate sebelum Buat Video)');
+    }
+    imageData = clip.imageDataUrl;
+    // Extension match dengan mime type di data URL (Imagen kadang output PNG)
+    const mimeMatch = imageData.match(/^data:image\/(png|jpeg|jpg|webp);base64,/);
+    const ext = mimeMatch?.[1] === 'png' ? 'png' : mimeMatch?.[1] === 'webp' ? 'webp' : 'jpg';
+    const imageFilePath = await saveImage(imageData, generationId, `clip-${clip.index}.${ext}`);
     const imagePublicUrl = storagePathToUrl(imageFilePath);
     await db.collection('Generations').updateOne(
       { _id: oid },
@@ -218,12 +214,14 @@ async function generateClipAssets(
     { arrayFilters }
   );
 
-  const finalPrompt = styleNotes ? `${styleNotes}\n\n${clip.prompt}` : clip.prompt;
+  // Veo prompt = clip.prompt saja. productNotes + styleNotes sudah ter-encode di image (yang
+  // jadi startImage), kirim ulang ke Veo bikin prompt terlalu panjang dan sering fail.
+  const finalPrompt = clip.prompt;
   const veoJobId = await createVideoJob({
     imageUrl: mediaGenerationId,
     prompt: finalPrompt,
     model: veoModel,
-    aspectRatio: 'landscape',
+    aspectRatio,
   });
 
   await db.collection('Generations').updateOne(
@@ -272,3 +270,4 @@ async function processWithConcurrency<T>(
   }
   await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker));
 }
+

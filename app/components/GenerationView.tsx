@@ -26,6 +26,8 @@ interface GenerationApiResponse {
   createdAt: string;
   productIdentifier?: string;
   creativeIdeaTitle?: string | null;
+  productNotes?: string;
+  styleNotes?: string;
   clips?: Clip[];
 }
 
@@ -184,6 +186,8 @@ export function GenerationView({ generationId }: GenerationViewProps) {
       <ClipResults
         generationId={generationId}
         clips={generation.clips ?? []}
+        productNotes={generation.productNotes ?? ''}
+        styleNotes={generation.styleNotes ?? ''}
         onClipUpdated={fetchGeneration}
       />
     </div>

@@ -45,6 +45,7 @@ export async function GET(
         brief: generation.brief ?? '',
         ideas: generation.ideas ?? [],
         selectedIdeaIndex: generation.selectedIdeaIndex ?? null,
+        productNotes: generation.productNotes ?? '',
         styleNotes: generation.styleNotes ?? '',
         clips: generation.clips ?? [],
         error: generation.error_message ?? null,

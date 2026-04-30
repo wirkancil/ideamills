@@ -18,7 +18,8 @@
     "reset:jobs": "tsx scripts/reset-stuck-jobs.ts",
     "reset:db": "node scripts/reset-database.js",
     "reset:db:stats": "node scripts/reset-database.js stats",
-    "clear:queue": "tsx scripts/clear-queue.ts"
+    "clear:queue": "tsx scripts/clear-queue.ts",
+    "update:cookies": "tsx scripts/update-useapi-cookies.ts"
   },
   "dependencies": {
     "@radix-ui/react-dialog": "^1.1.15",

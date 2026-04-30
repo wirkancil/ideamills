@@ -148,6 +148,66 @@ export async function waitForVideo(jobId: string): Promise<string> {
   throw new Error(`Video job ${jobId} timed out after 10 minutes`);
 }
 
+export interface ImageGenerateOptions {
+  prompt: string;
+  model?: 'imagen-4' | 'nano-banana-2' | 'nano-banana-pro';
+  aspectRatio?: '16:9' | '4:3' | '1:1' | '3:4' | '9:16';
+  count?: 1 | 2 | 3 | 4;
+  email?: string;
+}
+
+export interface ImageGenerateResult {
+  jobId: string;
+  imageUrl: string;
+  mediaGenerationId: string;
+}
+
+interface RawImageResponse {
+  jobId: string;
+  media?: Array<{
+    image?: {
+      generatedImage?: {
+        mediaGenerationId?: string;
+        fifeUrl?: string;
+      };
+    };
+  }>;
+}
+
+/**
+ * Generate image via useapi.net Google Flow.
+ * Endpoint: POST /google-flow/images
+ */
+export async function generateImage(opts: ImageGenerateOptions): Promise<ImageGenerateResult> {
+  const userEmail = opts.email ?? process.env.USEAPI_GOOGLE_EMAIL;
+  if (!userEmail) throw new Error('USEAPI_GOOGLE_EMAIL not set');
+
+  const result = await jsonRequest<RawImageResponse>(
+    'POST',
+    '/google-flow/images',
+    {
+      email: userEmail,
+      prompt: opts.prompt,
+      model: opts.model ?? 'imagen-4',
+      aspectRatio: opts.aspectRatio ?? '16:9',
+      count: opts.count ?? 1,
+    }
+  );
+
+  const first = result.media?.[0]?.image?.generatedImage;
+  const imageUrl = first?.fifeUrl;
+  const mediaGenerationId = first?.mediaGenerationId;
+  if (!imageUrl || !mediaGenerationId) {
+    throw new Error('useapi.net image: missing fifeUrl/mediaGenerationId in response');
+  }
+
+  return {
+    jobId: result.jobId,
+    imageUrl,
+    mediaGenerationId,
+  };
+}
+
 function sleep(ms: number): Promise<void> {
   return new Promise((r) => setTimeout(r, ms));
 }

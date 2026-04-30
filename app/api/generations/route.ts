@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { generateIdempotencyKey } from '@/app/lib/utils';
-import { GenerationRequest } from '@/app/lib/types';
 import { z } from 'zod';
 import { getDb } from '@/app/lib/mongoClient';
 import { ObjectId } from 'mongodb';
@@ -19,10 +18,10 @@ const GenerationRequestSchema = z.object({
     preset: z.enum(PRESET_NAMES).optional(),
     vision: z.string().optional(),
     ideation: z.string().optional(),
-    embedding: z.string().optional(),
     scripting: z.string().optional(),
     visualPrompt: z.string().optional(),
-    text2img: z.string().optional(),
+    ideas: z.string().optional(),
+    expand: z.string().optional(),
   }).optional(),
 });
 
@@ -129,7 +128,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const payload: GenerationRequest = validation.data as GenerationRequest;
+    const payload = validation.data;
     const resolvedModelConfig = resolvePreset(validation.data.modelConfig?.preset ?? 'balanced');
     if (validation.data.modelConfig) {
       Object.assign(resolvedModelConfig, validation.data.modelConfig);

@@ -8,7 +8,7 @@ import type { Clip } from '@/app/lib/types';
 const RequestSchema = z.object({
   generationId: z.string().min(1),
   clipIndex: z.number().int().min(0).max(5),
-  prompt: z.string().min(10).max(2000),
+  prompt: z.string().min(10).max(5000),
   imageMode: z.enum(['inherit', 'override', 'ai-generate']),
   imageDataUrl: z.string().nullable().optional(),
 }).refine(

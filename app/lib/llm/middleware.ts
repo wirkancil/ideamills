@@ -44,7 +44,7 @@ export function cleanJson(text: string): string {
 }
 
 export function parseJson<T = unknown>(raw: string | null | undefined): T {
-  if (!raw) throw new LLMError('Empty response from LLM', 'INVALID_RESPONSE', 'openrouter');
+  if (!raw) throw new LLMError('Empty response from LLM', 'PROVIDER_ERROR', 'openrouter');
   try {
     return JSON.parse(raw) as T;
   } catch {
@@ -52,9 +52,13 @@ export function parseJson<T = unknown>(raw: string | null | undefined): T {
     try {
       return JSON.parse(cleaned) as T;
     } catch (err) {
+      // Treat unterminated/truncated JSON as retryable provider error.
+      // Often happens when OpenRouter routes to slow endpoint and stream cuts off.
+      const msg = (err as Error).message;
+      const isTruncated = msg.includes('Unterminated') || msg.includes('Unexpected end');
       throw new LLMError(
-        `Failed to parse JSON: ${(err as Error).message}. Raw: ${raw.slice(0, 200)}`,
-        'INVALID_RESPONSE',
+        `Failed to parse JSON: ${msg}. Raw: ${raw.slice(0, 200)}`,
+        isTruncated ? 'PROVIDER_ERROR' : 'INVALID_RESPONSE',
         'openrouter'
       );
     }
@@ -121,7 +125,7 @@ export async function logUsage(entry: LogEntry): Promise<void> {
 
 /**
  * Global distributed semaphore backed by MongoDB.
- * All worker processes share the same token bucket — prevents OpenRouter rate limit
+ * All worker processes share the same token bucket — prevents LLMGateway rate limit
  * storms when multiple jobs run in parallel across multiple worker instances.
  */
 export async function limit<T>(key: string, concurrency: number, fn: () => Promise<T>): Promise<T> {

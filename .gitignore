@@ -56,3 +56,7 @@ test.png
 
 # legacy planning artifacts (markdown only)
 /contohsekarang.md
+
+# secrets — useapi.net Google Flow cookies (sensitif, jangan commit)
+.cookies.txt
+.cookies-*.txt

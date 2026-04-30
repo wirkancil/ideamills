@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { ObjectId } from 'mongodb';
 import { z } from 'zod';
 import { getDb } from '@/app/lib/mongoClient';
-import { resolvePreset, expandToClips } from '@/app/lib/llm';
+import { resolvePreset, expandToClips, enhanceVeoPrompt } from '@/app/lib/llm';
 import type { Clip, Idea, ProductDescription, ModelDescription } from '@/app/lib/types';
 
 const RequestSchema = z.object({
@@ -43,7 +43,6 @@ export async function POST(request: NextRequest) {
     const selectedIdea = ideas[selectedIdeaIndex];
     const productAnalysis = generation.productAnalysis as ProductDescription | undefined;
     const modelAnalysis = (generation.modelAnalysis ?? null) as ModelDescription | null;
-    const brief = (generation.brief ?? '') as string;
     const modelConfig = generation.modelConfig ?? resolvePreset('balanced');
 
     if (!productAnalysis) {
@@ -53,16 +52,31 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    // Brief sengaja TIDAK di-pass ke expandToClips. Brief mentah sudah dipakai
+    // di step ideation untuk generate ide. Setelah user pilih ide, selectedIdea.content
+    // adalah versi yang sudah ringkas dan curated. Pass brief lagi = double-counting,
+    // bikin output expand berlebihan dan mengulang detail brief mentah.
     const result = await expandToClips(
       productAnalysis,
       modelAnalysis,
       selectedIdea,
-      brief,
-      modelConfig as Parameters<typeof expandToClips>[4]
+      modelConfig as Parameters<typeof expandToClips>[3]
+    );
+
+    // Auto-enhance: flip negation ke positive phrasing sebelum return ke client
+    const enhancedClips = await Promise.all(
+      result.clips.map(async (c) => {
+        try {
+          const enhanced = await enhanceVeoPrompt(c.prompt, modelConfig as Parameters<typeof enhanceVeoPrompt>[1]);
+          return { prompt: enhanced };
+        } catch {
+          return { prompt: c.prompt };
+        }
+      })
     );
 
     const now = new Date();
-    const clips: Clip[] = result.clips.map((c, idx) => ({
+    const clips: Clip[] = enhancedClips.map((c, idx) => ({
       index: idx,
       prompt: c.prompt,
       imageMode: 'inherit',
@@ -84,6 +98,7 @@ export async function POST(request: NextRequest) {
         $set: {
           selectedIdeaIndex,
           creative_idea_title: selectedIdea.title,
+          productNotes: result.productNotes,
           styleNotes: result.styleNotes,
           clips,
           updated_at: now,
@@ -92,6 +107,7 @@ export async function POST(request: NextRequest) {
     );
 
     return NextResponse.json({
+      productNotes: result.productNotes,
       styleNotes: result.styleNotes,
       clips: clips.map((c) => ({ index: c.index, prompt: c.prompt, imageMode: c.imageMode })),
     });

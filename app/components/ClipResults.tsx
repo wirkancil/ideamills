@@ -3,17 +3,28 @@
 import { useState } from 'react';
 import { Button } from './ui/button';
 import { Card, CardContent } from './ui/card';
-import { Loader2, RefreshCw, Download, AlertCircle } from 'lucide-react';
+import { Loader2, RefreshCw, Download, AlertCircle, ChevronDown, ChevronUp, Copy, Check } from 'lucide-react';
 import type { Clip } from '@/app/lib/types';
 
 interface ClipResultsProps {
   generationId: string;
   clips: Clip[];
+  productNotes?: string;
+  styleNotes?: string;
   onClipUpdated?: () => void;
 }
 
-export function ClipResults({ generationId, clips, onClipUpdated }: ClipResultsProps) {
+export function ClipResults({ generationId, clips, productNotes = '', styleNotes = '', onClipUpdated }: ClipResultsProps) {
   const [regeneratingIndex, setRegeneratingIndex] = useState<number | null>(null);
+  const [expandedClip, setExpandedClip] = useState<number | null>(null);
+  const [copiedField, setCopiedField] = useState<string | null>(null);
+
+  const copyToClipboard = (text: string, fieldId: string) => {
+    navigator.clipboard.writeText(text).then(() => {
+      setCopiedField(fieldId);
+      setTimeout(() => setCopiedField(null), 1500);
+    });
+  };
 
   const handleRegenerate = async (clip: Clip) => {
     setRegeneratingIndex(clip.index);
@@ -54,7 +65,63 @@ export function ClipResults({ generationId, clips, onClipUpdated }: ClipResultsP
 
             <ClipMediaPreview clip={clip} />
 
-            <div className="text-xs text-muted-foreground line-clamp-2">{clip.prompt}</div>
+            <div className="space-y-1.5">
+              <div className="text-xs text-muted-foreground line-clamp-2">{clip.prompt}</div>
+              <button
+                type="button"
+                onClick={() => setExpandedClip(expandedClip === clip.index ? null : clip.index)}
+                className="text-xs text-primary hover:underline flex items-center gap-1"
+              >
+                {expandedClip === clip.index ? (
+                  <>
+                    <ChevronUp className="w-3 h-3" /> Sembunyikan prompt lengkap
+                  </>
+                ) : (
+                  <>
+                    <ChevronDown className="w-3 h-3" /> Lihat prompt lengkap
+                  </>
+                )}
+              </button>
+            </div>
+
+            {expandedClip === clip.index && (
+              <div className="space-y-3 border-t pt-3 text-xs">
+                {productNotes && (
+                  <PromptBlock
+                    label="Product Detail"
+                    value={productNotes}
+                    fieldId={`product-${clip.index}`}
+                    copiedField={copiedField}
+                    onCopy={copyToClipboard}
+                  />
+                )}
+                {styleNotes && (
+                  <PromptBlock
+                    label="Style Notes"
+                    value={styleNotes}
+                    fieldId={`style-${clip.index}`}
+                    copiedField={copiedField}
+                    onCopy={copyToClipboard}
+                  />
+                )}
+                <PromptBlock
+                  label="Clip Prompt"
+                  value={clip.prompt}
+                  fieldId={`prompt-${clip.index}`}
+                  copiedField={copiedField}
+                  onCopy={copyToClipboard}
+                />
+                {(productNotes || styleNotes) && (
+                  <PromptBlock
+                    label="Full Prompt (gabungan, dikirim ke Veo)"
+                    value={[productNotes, styleNotes, clip.prompt].filter(Boolean).join('\n\n')}
+                    fieldId={`full-${clip.index}`}
+                    copiedField={copiedField}
+                    onCopy={copyToClipboard}
+                  />
+                )}
+              </div>
+            )}
 
             <div className="flex gap-2">
               {clip.generated_video_path && (
@@ -106,6 +173,44 @@ function ClipStatusBadge({ status }: { status: Clip['video_status'] }) {
   };
   const { text, className } = labels[status];
   return <span className={`text-xs px-2 py-0.5 rounded-full ${className}`}>{text}</span>;
+}
+
+interface PromptBlockProps {
+  label: string;
+  value: string;
+  fieldId: string;
+  copiedField: string | null;
+  onCopy: (text: string, fieldId: string) => void;
+}
+
+function PromptBlock({ label, value, fieldId, copiedField, onCopy }: PromptBlockProps) {
+  const wordCount = value.trim().split(/\s+/).length;
+  const charCount = value.length;
+  return (
+    <div className="space-y-1">
+      <div className="flex items-center justify-between">
+        <p className="font-semibold text-foreground">{label}</p>
+        <div className="flex items-center gap-2">
+          <span className="text-[10px] text-muted-foreground">{wordCount} kata · {charCount} char</span>
+          <button
+            type="button"
+            onClick={() => onCopy(value, fieldId)}
+            className="text-[10px] flex items-center gap-1 text-muted-foreground hover:text-foreground"
+            title="Copy ke clipboard"
+          >
+            {copiedField === fieldId ? (
+              <><Check className="w-3 h-3" /> Copied</>
+            ) : (
+              <><Copy className="w-3 h-3" /> Copy</>
+            )}
+          </button>
+        </div>
+      </div>
+      <pre className="bg-muted/50 rounded-md p-2 whitespace-pre-wrap font-mono text-[11px] leading-relaxed border">
+        {value}
+      </pre>
+    </div>
+  );
 }
 
 function ClipMediaPreview({ clip }: { clip: Clip }) {

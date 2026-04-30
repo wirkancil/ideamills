@@ -9,13 +9,18 @@ import { ClipEditor, type ClipDraft } from './components/ClipEditor';
 import {
   EnginePicker,
   DEFAULT_TEXT_MODEL,
+  DEFAULT_VISION_MODEL,
   DEFAULT_VEO_MODEL,
+  DEFAULT_ASPECT_RATIO,
   type TextModelId,
+  type VisionModelId,
   type VeoModelId,
+  type AspectRatio,
 } from './components/EnginePicker';
 import { ScriptPicker } from '@/app/components/ScriptPicker';
 import { Button } from '@/app/components/ui/button';
-import { Loader2, Video, BookOpen } from 'lucide-react';
+import { Textarea } from '@/app/components/ui/textarea';
+import { Loader2, Video, BookOpen, Wand2 } from 'lucide-react';
 import type { DBScriptLibrary, Idea } from '@/app/lib/types';
 
 type Mode = 'dari-nol' | 'quick';
@@ -32,17 +37,21 @@ function StudioPageInner() {
   const [productImage, setProductImage] = useState<string | null>(null);
   const [brief, setBrief] = useState('');
   const [textModel, setTextModel] = useState<TextModelId>(DEFAULT_TEXT_MODEL);
+  const [visionModel, setVisionModel] = useState<VisionModelId>(DEFAULT_VISION_MODEL);
   const [veoModel, setVeoModel] = useState<VeoModelId>(DEFAULT_VEO_MODEL);
+  const [aspectRatio, setAspectRatio] = useState<AspectRatio>(DEFAULT_ASPECT_RATIO);
 
   // Cross-step state
   const [generationId, setGenerationId] = useState<string | null>(null);
   const [ideas, setIdeas] = useState<Idea[]>([]);
+  const [productNotes, setProductNotes] = useState('');
   const [styleNotes, setStyleNotes] = useState('');
   const [clips, setClips] = useState<ClipDraft[]>([]);
 
   // Quick mode state
   const [selectedScript, setSelectedScript] = useState<DBScriptLibrary | null>(null);
   const [bankPickerOpen, setBankPickerOpen] = useState(false);
+  const [enhancingScript, setEnhancingScript] = useState(false);
 
   // Loading flags
   const [generatingIdeas, setGeneratingIdeas] = useState(false);
@@ -86,12 +95,24 @@ function StudioPageInner() {
           modelImageUrl: null,
           brief,
           textModel,
+          visionModel,
           veoModel,
+          aspectRatio,
         }),
       });
       if (!res.ok) {
         const errBody = await res.json().catch(() => ({}));
-        throw new Error(errBody.error ?? `HTTP ${res.status}`);
+        const detailMsg = errBody.details
+          ? Object.entries(errBody.details)
+              .filter(([k]) => k !== '_errors')
+              .map(([k, v]: [string, unknown]) => {
+                const errs = (v as { _errors?: string[] })._errors ?? [];
+                return errs.length ? `${k}: ${errs.join(', ')}` : null;
+              })
+              .filter(Boolean)
+              .join('; ')
+          : null;
+        throw new Error(detailMsg || errBody.error || `HTTP ${res.status}`);
       }
       const data = await res.json();
       setGenerationId(data.generationId);
@@ -119,6 +140,7 @@ function StudioPageInner() {
         throw new Error(errBody.error ?? `HTTP ${res.status}`);
       }
       const data = await res.json();
+      setProductNotes(data.productNotes ?? '');
       setStyleNotes(data.styleNotes ?? '');
       setClips(
         (data.clips as Array<{ index: number; prompt: string; imageMode: 'inherit' | 'override' | 'ai-generate' }>).map(
@@ -143,12 +165,16 @@ function StudioPageInner() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           generationId,
+          productNotes,
           styleNotes,
           clips: clips.map((c) => ({
             index: c.index,
             prompt: c.prompt,
             imageMode: c.imageMode,
-            imageDataUrl: c.imageMode === 'override' ? c.imageDataUrl : null,
+            imageDataUrl:
+              c.imageMode === 'override' || c.imageMode === 'ai-generate'
+                ? c.imageDataUrl
+                : null,
           })),
         }),
       });
@@ -160,6 +186,35 @@ function StudioPageInner() {
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Gagal submit video');
       setSubmittingVideo(false);
+    }
+  };
+
+  const handleEnhanceScript = async () => {
+    if (!selectedScript) return;
+    setEnhancingScript(true);
+    try {
+      const res = await fetch('/api/studio/enhance-prompt', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ prompt: selectedScript.content, textModel }),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        alert(`Gagal enhance: ${err.error ?? res.statusText}`);
+        return;
+      }
+      const data = await res.json();
+      if (data.skipped) {
+        alert(`ℹ️ ${data.reason ?? 'Tidak ada perubahan diperlukan.'}`);
+        return;
+      }
+      if (data.enhanced && data.enhanced !== selectedScript.content) {
+        setSelectedScript({ ...selectedScript, content: data.enhanced });
+      }
+    } catch (err) {
+      alert(`Gagal enhance: ${err instanceof Error ? err.message : 'unknown'}`);
+    } finally {
+      setEnhancingScript(false);
     }
   };
 
@@ -183,11 +238,22 @@ function StudioPageInner() {
           scriptContent: selectedScript.content,
           scriptTitle: selectedScript.title,
           veoModel,
+          aspectRatio,
         }),
       });
       if (!res.ok) {
         const errBody = await res.json().catch(() => ({}));
-        throw new Error(errBody.error ?? `HTTP ${res.status}`);
+        const detailMsg = errBody.details
+          ? Object.entries(errBody.details)
+              .filter(([k]) => k !== '_errors')
+              .map(([k, v]: [string, unknown]) => {
+                const errs = (v as { _errors?: string[] })._errors ?? [];
+                return errs.length ? `${k}: ${errs.join(', ')}` : null;
+              })
+              .filter(Boolean)
+              .join('; ')
+          : null;
+        throw new Error(detailMsg || errBody.error || `HTTP ${res.status}`);
       }
       const data = await res.json();
       router.push(`/generations/${data.generationId}`);
@@ -254,24 +320,58 @@ function StudioPageInner() {
 
             <EnginePicker
               textModel={textModel}
+              visionModel={visionModel}
               veoModel={veoModel}
+              aspectRatio={aspectRatio}
               onTextModelChange={setTextModel}
+              onVisionModelChange={setVisionModel}
               onVeoModelChange={setVeoModel}
+              onAspectRatioChange={setAspectRatio}
             />
 
             {mode === 'quick' && (
               <div className="space-y-2 border rounded-xl p-3">
                 <div className="flex items-center justify-between">
                   <span className="text-xs font-medium">Script Bank</span>
-                  <Button variant="outline" size="sm" onClick={() => setBankPickerOpen(true)}>
-                    <BookOpen className="w-3.5 h-3.5 mr-1.5" />
-                    {selectedScript ? 'Ganti Script' : 'Pilih Script'}
-                  </Button>
+                  <div className="flex items-center gap-1.5">
+                    {selectedScript && (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={handleEnhanceScript}
+                        disabled={enhancingScript}
+                        title="Polish prompt — flip negation ke positive phrasing"
+                      >
+                        {enhancingScript ? (
+                          <Loader2 className="w-3.5 h-3.5 mr-1.5 animate-spin" />
+                        ) : (
+                          <Wand2 className="w-3.5 h-3.5 mr-1.5" />
+                        )}
+                        Enhance
+                      </Button>
+                    )}
+                    <Button variant="outline" size="sm" onClick={() => setBankPickerOpen(true)}>
+                      <BookOpen className="w-3.5 h-3.5 mr-1.5" />
+                      {selectedScript ? 'Ganti Script' : 'Pilih Script'}
+                    </Button>
+                  </div>
                 </div>
                 {selectedScript ? (
-                  <div className="text-xs space-y-1 bg-muted/30 rounded-lg p-3">
-                    <p className="font-semibold">{selectedScript.title}</p>
-                    <p className="text-muted-foreground line-clamp-3 leading-relaxed">{selectedScript.content}</p>
+                  <div className="space-y-2">
+                    <p className="text-xs font-semibold">{selectedScript.title}</p>
+                    <Textarea
+                      value={selectedScript.content}
+                      onChange={(e) =>
+                        setSelectedScript({ ...selectedScript, content: e.target.value })
+                      }
+                      rows={8}
+                      maxLength={5000}
+                      className="text-xs leading-relaxed font-mono"
+                      placeholder="Edit script content sebelum Buat Video..."
+                    />
+                    <p className="text-[10px] text-right text-muted-foreground">
+                      {selectedScript.content.length} / 5000
+                    </p>
                   </div>
                 ) : (
                   <p className="text-xs text-muted-foreground">Belum ada script dipilih.</p>
@@ -345,11 +445,14 @@ function StudioPageInner() {
 
         {step === 'edit-clips' && (
           <ClipEditor
+            productNotes={productNotes}
+            onProductNotesChange={setProductNotes}
             styleNotes={styleNotes}
             onStyleNotesChange={setStyleNotes}
             clips={clips}
             onClipsChange={setClips}
             productPreview={productImage}
+            aspectRatio={aspectRatio}
             submitting={submittingVideo}
             onSubmit={handleSubmitVideo}
             onBack={() => setStep('pick-idea')}

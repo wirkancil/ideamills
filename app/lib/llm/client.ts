@@ -19,7 +19,7 @@ function headers(): Record<string, string> {
   return {
     Authorization: `Bearer ${apiKey()}`,
     'Content-Type': 'application/json',
-    'HTTP-Referer': process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000',
+    'HTTP-Referer': process.env.OPENROUTER_REFERER ?? 'https://ideamills.app',
     'X-Title': 'IdeaMills',
   };
 }
@@ -53,46 +53,8 @@ export interface ChatCompletionResponse {
     prompt_tokens: number;
     completion_tokens: number;
     total_tokens: number;
-    total_cost?: number;
-  };
-}
-
-export interface ImageGenerationRequest {
-  model: string;
-  prompt: string;
-  n?: number;
-  size?: string;
-  response_format?: 'url' | 'b64_json';
-}
-
-export interface ImageGenerationResponse {
-  data: Array<{ url?: string; b64_json?: string }>;
-  model?: string;
-  usage?: {
-    prompt_tokens?: number;
-    total_cost?: number;
-  };
-}
-
-export interface EmbeddingRequest {
-  model: string;
-  input: string | string[];
-  dimensions?: number;
-  encoding_format?: 'float' | 'base64';
-  input_type?: 'search_query' | 'search_document' | 'classification' | 'clustering';
-}
-
-export interface EmbeddingResponse {
-  object: 'list';
-  data: Array<{
-    object: 'embedding';
-    embedding: number[];
-    index: number;
-  }>;
-  model: string;
-  usage: {
-    prompt_tokens: number;
-    total_tokens: number;
+    cost?: number;          // OpenRouter native field name
+    total_cost?: number;    // legacy compat
   };
 }
 
@@ -116,8 +78,12 @@ async function request<TReq, TRes>(
       const text = await res.text();
       const code =
         res.status === 429 ? 'RATE_LIMIT' : res.status >= 500 ? 'PROVIDER_ERROR' : 'INVALID_RESPONSE';
+      const friendlyMsg =
+        res.status === 402
+          ? `OpenRouter 402: Saldo tidak cukup. Top up di openrouter.ai/credits.`
+          : `OpenRouter ${res.status}: ${text.slice(0, 500)}`;
       throw new LLMError(
-        `OpenRouter ${res.status}: ${text.slice(0, 500)}`,
+        friendlyMsg,
         code,
         'openrouter',
         (body as { model?: string })?.model
@@ -156,18 +122,4 @@ export function chatCompletion(
     body,
     timeoutMs
   );
-}
-
-export function embeddings(
-  body: EmbeddingRequest,
-  timeoutMs = 60_000
-): Promise<EmbeddingResponse> {
-  return request<EmbeddingRequest, EmbeddingResponse>('/embeddings', body, timeoutMs);
-}
-
-export function imageGeneration(
-  body: ImageGenerationRequest,
-  timeoutMs = 120_000
-): Promise<ImageGenerationResponse> {
-  return request<ImageGenerationRequest, ImageGenerationResponse>('/images/generations', body, timeoutMs);
 }

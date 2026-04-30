@@ -8,9 +8,10 @@ import type { Clip } from '@/app/lib/types';
 
 const RequestSchema = z.object({
   productImageUrl: z.string().min(1),
-  scriptContent: z.string().min(10).max(2000),
-  scriptTitle: z.string().max(120).optional(),
+  scriptContent: z.string().min(10).max(5000),
+  scriptTitle: z.string().max(200).optional(),
   veoModel: z.string().optional().default('veo-3.1-fast'),
+  aspectRatio: z.enum(['landscape', 'portrait']).optional().default('landscape'),
 });
 
 /**
@@ -28,7 +29,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const { productImageUrl, scriptContent, scriptTitle, veoModel } = parsed.data;
+    const { productImageUrl, scriptContent, scriptTitle, veoModel, aspectRatio } = parsed.data;
     const db = await getDb();
 
     const pendingCount = await db.collection('JobQueue').countDocuments({ status: 'pending' });
@@ -74,6 +75,7 @@ export async function POST(request: NextRequest) {
       progress: 0,
       progress_label: 'Antrian video',
       veo_model: veoModel,
+      aspect_ratio: aspectRatio,
       created_at: now,
       updated_at: now,
     });

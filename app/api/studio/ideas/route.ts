@@ -8,13 +8,15 @@ import { generateIdempotencyKey } from '@/app/lib/utils';
 const PRESET_NAMES = ['fast', 'balanced', 'premium', 'custom'] as const;
 
 const RequestSchema = z.object({
-  generationId: z.string().optional(),
+  generationId: z.string().nullable().optional(),
   productImageUrl: z.string().min(1),
   modelImageUrl: z.string().nullable().optional(),
-  brief: z.string().max(500).optional().default(''),
-  preset: z.enum(PRESET_NAMES).optional().default('balanced'),
-  textModel: z.string().optional(),     // user-picked LLM for ideas/expand
-  veoModel: z.string().optional(),      // user-picked Veo model
+  brief: z.string().max(5000).nullable().optional().default(''),
+  preset: z.enum(PRESET_NAMES).optional().default('fast'),
+  textModel: z.string().nullable().optional(),
+  visionModel: z.string().nullable().optional(),
+  veoModel: z.string().nullable().optional(),
+  aspectRatio: z.enum(['landscape', 'portrait']).nullable().optional(),
 });
 
 export async function POST(request: NextRequest) {
@@ -28,11 +30,15 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const { generationId, productImageUrl, modelImageUrl, brief, preset, textModel, veoModel } = parsed.data;
+    const { generationId, productImageUrl, modelImageUrl, preset, textModel, visionModel, veoModel, aspectRatio } = parsed.data;
+    const brief = parsed.data.brief ?? '';
     const baseConfig = resolvePreset(preset);
 
-    // Vision always uses Gemini multimodal; user-selected text model applies to ideas + expand only.
-    const visionConfig = baseConfig;
+    // Vision config — kalau user pilih visionModel, override default preset.
+    const visionConfig = {
+      ...baseConfig,
+      ...(visionModel ? { vision: visionModel } : {}),
+    };
     const textConfig = {
       ...baseConfig,
       ...(textModel ? { ideas: textModel, expand: textModel } : {}),
@@ -77,6 +83,7 @@ export async function POST(request: NextRequest) {
             progress_label: 'Ide regenerated',
             modelConfig: textConfig,
             ...(veoModel ? { veo_model: veoModel } : {}),
+            ...(aspectRatio ? { aspect_ratio: aspectRatio } : {}),
             updated_at: now,
           },
         }
@@ -106,6 +113,7 @@ export async function POST(request: NextRequest) {
         progress_label: 'Ide siap',
         modelConfig: textConfig,
         ...(veoModel ? { veo_model: veoModel } : {}),
+        ...(aspectRatio ? { aspect_ratio: aspectRatio } : {}),
         created_at: now,
         updated_at: now,
       });

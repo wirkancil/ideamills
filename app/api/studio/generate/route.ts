@@ -8,18 +8,22 @@ import type { Clip } from '@/app/lib/types';
 
 const ClipDraftSchema = z.object({
   index: z.number().int().min(0).max(5),
-  prompt: z.string().min(10).max(2000),
+  prompt: z.string().min(10).max(5000),
   imageMode: z.enum(['inherit', 'override', 'ai-generate']),
   imageDataUrl: z.string().nullable().optional(),
 }).refine(
-  (clip) => clip.imageMode !== 'override' || (typeof clip.imageDataUrl === 'string' && clip.imageDataUrl.length > 0),
-  { message: 'Foto wajib di-upload untuk imageMode override' }
+  (clip) => {
+    if (clip.imageMode === 'inherit') return true;
+    return typeof clip.imageDataUrl === 'string' && clip.imageDataUrl.length > 0;
+  },
+  { message: 'Foto wajib ada (upload manual atau generate AI dulu) sebelum Buat Video' }
 );
 
 const RequestSchema = z.object({
   generationId: z.string().min(1),
-  styleNotes: z.string().max(1500).default(''),
-  clips: z.array(ClipDraftSchema).min(2).max(6),
+  productNotes: z.string().max(2000).default(''),
+  styleNotes: z.string().max(2000).default(''),
+  clips: z.array(ClipDraftSchema).min(1).max(6),
 });
 
 export async function POST(request: NextRequest) {
@@ -33,7 +37,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const { generationId, styleNotes, clips: clipDrafts } = parsed.data;
+    const { generationId, productNotes, styleNotes, clips: clipDrafts } = parsed.data;
     let oid: ObjectId;
     try {
       oid = new ObjectId(generationId);
@@ -81,6 +85,7 @@ export async function POST(request: NextRequest) {
       { _id: oid },
       {
         $set: {
+          productNotes,
           styleNotes,
           clips,
           status: 'queued',

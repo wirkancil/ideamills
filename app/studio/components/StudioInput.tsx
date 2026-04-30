@@ -122,9 +122,9 @@ export function StudioInput({
             value={brief}
             onChange={(e) => onBriefChange(e.target.value)}
             rows={3}
-            maxLength={500}
+            maxLength={5000}
           />
-          <p className="text-[10px] text-right text-muted-foreground">{brief.length} / 500</p>
+          <p className="text-[10px] text-right text-muted-foreground">{brief.length} / 5000</p>
         </div>
       )}
 

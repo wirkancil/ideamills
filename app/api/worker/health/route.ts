@@ -14,7 +14,7 @@ export async function GET() {
       failed,
       activeWorkerIds,
       recovered,
-      avgStd, avgStr,
+      avgMs,
     ] = await Promise.all([
       col.countDocuments({ status: 'pending', job_type: { $in: ['standard', null] } }),
       col.countDocuments({ status: 'pending', job_type: 'structured' }),
@@ -23,8 +23,7 @@ export async function GET() {
       col.countDocuments({ status: 'failed' }),
       col.distinct('worker_id', { status: 'processing', worker_id: { $ne: null } }),
       recoverStuckJobs(),
-      getAvgCompletionMs('standard'),
-      getAvgCompletionMs('structured'),
+      getAvgCompletionMs(),
     ]);
 
     return NextResponse.json({
@@ -38,7 +37,7 @@ export async function GET() {
         activeInstances: activeWorkerIds.length,
         workerIds: activeWorkerIds,
       },
-      avgCompletionMs: { standard: Math.round(avgStd), structured: Math.round(avgStr) },
+      avgCompletionMs: Math.round(avgMs),
       recovered,
       ts: new Date().toISOString(),
     });

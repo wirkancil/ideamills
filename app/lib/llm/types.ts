@@ -1,10 +1,8 @@
 export type LayerName =
   | 'vision'
   | 'ideation'
-  | 'embedding'
   | 'scripting'
   | 'visualPrompt'
-  | 'text2img'
   | 'ideas'
   | 'expand';
 
@@ -14,10 +12,8 @@ export interface ModelConfig {
   preset: PresetName;
   vision: string;
   ideation: string;
-  embedding: string;
   scripting: string;
   visualPrompt: string;
-  text2img: string;
   ideas: string;
   expand: string;
 }
@@ -51,25 +47,6 @@ export interface LLMResponse<T = string> {
   model: string;
   usage: LLMUsage;
   latencyMs: number;
-}
-
-export interface EmbeddingResponse {
-  vectors: number[][];
-  model: string;
-  dim: number;
-  usage: LLMUsage;
-}
-
-export interface ImageResponse {
-  images: string[];
-  model: string;
-  latencyMs: number;
-}
-
-export interface ImageCallOptions {
-  aspectRatio?: '1:1' | '16:9' | '9:16' | '4:5' | '2:3' | '3:2';
-  size?: '0.5K' | '1K' | '2K' | '4K';
-  n?: number;
 }
 
 export class LLMError extends Error {
