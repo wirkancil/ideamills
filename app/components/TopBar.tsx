@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { Sparkles, History, Clapperboard, Images } from 'lucide-react';
+import { Sparkles, History, Clapperboard, Images, FileText } from 'lucide-react';
 
 export function TopBar() {
   const pathname = usePathname();
@@ -27,6 +27,17 @@ export function TopBar() {
             >
               <Clapperboard className="w-4 h-4" />
               Studio
+            </Link>
+            <Link
+              href="/scripts"
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium transition-colors ${
+                pathname === '/scripts' || pathname.startsWith('/scripts/')
+                  ? 'bg-primary text-primary-foreground'
+                  : 'text-muted-foreground hover:text-foreground hover:bg-muted'
+              }`}
+            >
+              <FileText className="w-4 h-4" />
+              Scripts
             </Link>
             <Link
               href="/assets"

@@ -1,58 +1,4 @@
 // /app/lib/types.ts
-export type JobType = 'standard' | 'structured';
-
-export interface GenerationRequest {
-  productImageUrl: string;
-  modelImageUrl?: string | null;
-  basicIdea: string;
-  visualOverrides?: string | null;
-  enhancedPrompt?: string;
-  storyboardCount?: number;
-}
-
-export interface EnhancedGenerationRequest extends GenerationRequest {
-  enhancedPrompt: string;
-}
-
-// Structured payload stored in JobQueue — replaces the loose string-based enhanced flow
-export interface GenerationJobPayload {
-  productImageUrl: string;
-  modelImageUrl?: string | null;
-  basicIdea: string;
-  storyboardCount: number;
-  job_type?: JobType;
-  // Structured context from UI steps (avoids re-parsing from string)
-  product?: Record<string, unknown>;
-  model?: Record<string, unknown> | null;
-  creativeIdea?: {
-    title: string;
-    concept: string;
-    storyline: string;
-    key_message?: string;
-    why_effective?: string;
-  };
-}
-
-export type SceneType = 'Hook' | 'Problem' | 'Solution' | 'CTA';
-
-export interface Scene {
-  struktur: SceneType;
-  naskah_vo: string;
-  visual_idea: string;
-  text_to_image?: string; // L5
-  image_to_video?: string; // L5
-}
-
-export interface Variation {
-  id: string;          // var_001..var_100
-  theme: string;
-  directors_script?: string;
-  scenes: Scene[];     // 3–4 scenes
-}
-
-export interface GenerationResponse { 
-  variations: Variation[] 
-}
 
 export interface GenerationStatus {
   id: string;
@@ -99,68 +45,82 @@ export interface ModelDescription {
 export interface DBGeneration {
   _id: string;
   idempotency_key?: string;
+
+  // Format marker — undefined for v2 (default), 'legacy' for v1 docs
+  format_version?: 'legacy';
+
+  // Common identifiers
   product_identifier: string;
   model_identifier?: string;
   creative_idea_title?: string;
   product_image_url?: string;
   model_image_url?: string | null;
-  overrides?: string | null;
+  overrides?: string | null;          // legacy v1 field
+  brief?: string;                      // v2 field
+
+  // Vision result (v2 — stored for use in expand step)
+  productAnalysis?: ProductDescription;
+  modelAnalysis?: ModelDescription | null;
+
+  // Ideas (v2)
+  ideas?: Idea[];
+  selectedIdeaIndex?: number | null;
+
+  // Expanded clips (v2)
+  styleNotes?: string | null;
+  clips?: Clip[];
+
   modelConfig?: Record<string, unknown>;
-  status: 'queued' | 'processing' | 'completed' | 'failed' | 'canceled';
+  status: 'queued' | 'processing' | 'completed' | 'partial' | 'failed' | 'canceled';
   progress: number;
   progress_label?: string;
   error_message?: string | null;
+  first_frame?: 'model' | 'product';
+  veo_model?: 'veo-3.1-fast' | 'veo-3.1-quality';
   created_at: Date;
   updated_at: Date;
 }
 
-export interface DBScript {
-  _id: string;
-  generation_id: string;
-  idea_id: string;
-  theme: string;
-  idx: number;
-  directors_script?: string;
-  created_at: Date;
-}
-
-export interface DBScene {
-  _id: string;
-  script_id: string;
-  order: number;
-  struktur: SceneType;
-  naskah_vo: string;
-  visual_idea: string;
-  text_to_image?: string | null;
-  image_to_video?: string | null;
-  image_status: AssetStatus;
-  video_status: AssetStatus;
-  image_source: 'ai' | 'user' | null;
-  image_error: string | null;
-  video_error: string | null;
-  generated_image_path?: string | null;
-  generated_video_path?: string | null;
-  created_at: Date;
-  updated_at?: Date;
-}
-
 export type AssetStatus = 'pending' | 'queued' | 'generating' | 'done' | 'failed';
 
-export interface SceneAssetState {
-  id: string;
-  scriptId: string;
-  order: number;
-  struktur: SceneType;
-  naskah_vo: string;
-  visual_idea: string;
-  text_to_image: string;
-  image_to_video: string;
+// Script Bank (Library)
+export interface DBScriptLibrary {
+  _id: string;               // ObjectId stringified at API boundary
+  title: string;             // 1–200 char
+  tags: string[];            // lowercase + dash, max 10, ≤50 char each
+  content: string;           // 1–5000 char, full prompt text utuh
+  source: 'manual' | 'upload';
+  created_at: Date;
+  updated_at: Date;
+}
+
+export type ScriptLibraryListItem = Omit<DBScriptLibrary, 'content'>;
+
+// ============================================================
+// V2 Studio Clean Flow types
+// ============================================================
+
+export interface Idea {
+  title: string;       // 1-120 char
+  content: string;     // 20-800 char, single paragraph naratif
+}
+
+export type ClipImageMode = 'inherit' | 'override' | 'ai-generate';
+
+export interface Clip {
+  index: number;                         // 0-5
+  prompt: string;                        // 10-2000 char unified prompt
+  imageMode: ClipImageMode;
+  imageDataUrl?: string | null;          // wajib jika imageMode === 'override'
+  generated_image_path?: string | null;
+  generated_video_path?: string | null;
   image_status: AssetStatus;
-  image_source: 'ai' | 'user' | null;
-  image_url: string | null;
-  image_error: string | null;
   video_status: AssetStatus;
-  video_url: string | null;
-  video_error: string | null;
+  image_error?: string | null;
+  video_error?: string | null;
+  media_generation_id?: string | null;
+  video_job_id?: string | null;
+  created_at: Date;
+  updated_at?: Date;
 }
 

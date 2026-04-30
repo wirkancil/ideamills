@@ -30,10 +30,10 @@ import('../app/lib/mongoClient').then(({ ensureIndexes }) =>
 ).then(async () => {
   // Pre-register LLM rate-limit buckets so capacity is set before first job
   const { initBucket } = await import('../app/lib/llm/rateLimiter');
-  const { STANDARD_CONCURRENCY, STRUCTURED_CONCURRENCY } = await import('../app/lib/workerConfig');
-  // Global cap: standard jobs × 8 inner goroutines + structured × 6 = cap per model key
-  // We use a single "chat" bucket shared across models to cap total LLM calls
-  await initBucket('chat:global', (STANDARD_CONCURRENCY * 8) + (STRUCTURED_CONCURRENCY * 3));
+  const { WORKER_CONCURRENCY } = await import('../app/lib/workerConfig');
+  // Each v2 job runs ~3 LLM calls (vision + ideas + expand) + image gen per clip.
+  // Conservative bucket: WORKER_CONCURRENCY × 4 = headroom for parallel calls within a job.
+  await initBucket('chat:global', WORKER_CONCURRENCY * 4);
   console.log('✅ Rate-limit buckets initialized');
 }).then(() =>
   import('./poll').catch((error) => {

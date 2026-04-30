@@ -1,7 +1,19 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { ObjectId } from 'mongodb';
 import { getDb } from '@/app/lib/mongoClient';
 import { storagePathToUrl } from '@/app/lib/storage';
+import type { Clip } from '@/app/lib/types';
+
+interface AssetItem {
+  id: string;
+  generationId: string;
+  generationTitle: string;
+  type: 'uploaded' | 'generated';
+  role: 'product' | 'clip-image' | 'clip-video' | null;
+  image_url: string | null;
+  video_url: string | null;
+  label: string;
+  updated_at: Date;
+}
 
 // filter: all | images | videos | uploaded
 export async function GET(req: NextRequest) {
@@ -13,169 +25,90 @@ export async function GET(req: NextRequest) {
 
     const db = await getDb();
 
-    // ── Uploaded photos (product + model dari Generations) ──────────────────
-    // Selalu disertakan kecuali filter = images atau videos (AI only)
-    let uploadedAssets: {
-      id: string;
-      generationId: string;
-      generationTitle: string;
-      type: 'uploaded';
-      role: 'product' | 'model';
-      image_url: string;
-      video_url: null;
-      naskah_vo: string;
-      updated_at: Date;
-    }[] = [];
+    const gens = await db.collection('Generations')
+      .find({})
+      .sort({ created_at: -1 })
+      .toArray();
 
-    if (filter === 'all' || filter === 'uploaded') {
-      const gens = await db.collection('Generations')
-        .find({
-          $or: [
-            { product_image_url: { $exists: true, $nin: [null, ''] } },
-            { model_image_url: { $exists: true, $nin: [null, ''] } },
-          ],
-        })
-        .sort({ created_at: -1 })
-        .toArray();
+    const items: AssetItem[] = [];
 
-      for (const g of gens) {
-        const title = g.creative_idea_title || g.product_identifier || `Generation ${g._id.toString().slice(-6)}`;
-        const genId = g._id.toString();
+    for (const g of gens) {
+      const genId = g._id.toString();
+      const title = g.creative_idea_title || g.product_identifier || `Generation ${genId.slice(-6)}`;
 
-        if (g.product_image_url) {
-          const url = g.product_image_url.startsWith('/')
-            ? g.product_image_url
-            : g.product_image_url.startsWith('data:')
-              ? null
-              : g.product_image_url;
-          // Only include if it's a stored path (not base64)
-          const storedUrl = g.product_image_url.startsWith('/storage') || g.product_image_url.includes('storage/')
-            ? storagePathToUrl(g.product_image_url)
-            : g.product_image_url.startsWith('http')
-              ? g.product_image_url
-              : null;
-          if (storedUrl) {
-            uploadedAssets.push({
-              id: `${genId}-product`,
-              generationId: genId,
-              generationTitle: title,
-              type: 'uploaded',
-              role: 'product',
-              image_url: storedUrl,
-              video_url: null,
-              naskah_vo: 'Foto Produk',
-              updated_at: g.created_at,
-            });
-          }
+      // Uploaded composite/product photo (Step 1) — include for filter 'all', 'uploaded', and 'images'
+      const productUrl = resolvePhotoUrl(g.product_image_url);
+      if (productUrl && (filter === 'all' || filter === 'uploaded' || filter === 'images')) {
+        items.push({
+          id: `${genId}-product`,
+          generationId: genId,
+          generationTitle: title,
+          type: 'uploaded',
+          role: 'product',
+          image_url: productUrl,
+          video_url: null,
+          label: 'Foto Composite',
+          updated_at: g.created_at,
+        });
+      }
+
+      // V2 clips: generated images + videos
+      const clips = (g.clips ?? []) as Clip[];
+      for (const c of clips) {
+        if (c.generated_image_path && (filter === 'all' || filter === 'images')) {
+          items.push({
+            id: `${genId}-clip-${c.index}-img`,
+            generationId: genId,
+            generationTitle: title,
+            type: 'generated',
+            role: 'clip-image',
+            image_url: c.generated_image_path,
+            video_url: null,
+            label: `Clip ${c.index + 1} image`,
+            updated_at: c.updated_at ?? c.created_at,
+          });
         }
-
-        if (g.model_image_url) {
-          const storedUrl = g.model_image_url.startsWith('/storage') || g.model_image_url.includes('storage/')
-            ? storagePathToUrl(g.model_image_url)
-            : g.model_image_url.startsWith('http')
-              ? g.model_image_url
-              : null;
-          if (storedUrl) {
-            uploadedAssets.push({
-              id: `${genId}-model`,
-              generationId: genId,
-              generationTitle: title,
-              type: 'uploaded',
-              role: 'model',
-              image_url: storedUrl,
-              video_url: null,
-              naskah_vo: 'Foto Model',
-              updated_at: g.created_at,
-            });
-          }
+        if (c.generated_video_path && (filter === 'all' || filter === 'videos')) {
+          items.push({
+            id: `${genId}-clip-${c.index}-vid`,
+            generationId: genId,
+            generationTitle: title,
+            type: 'generated',
+            role: 'clip-video',
+            image_url: null,
+            video_url: c.generated_video_path,
+            label: `Clip ${c.index + 1} video`,
+            updated_at: c.updated_at ?? c.created_at,
+          });
         }
       }
     }
 
-    // ── Scene assets (AI generated + user uploaded per scene) ───────────────
-    const sceneFilter: Record<string, unknown> = {};
-    if (filter === 'images') {
-      sceneFilter.image_status = 'done';
-      sceneFilter.generated_image_path = { $exists: true, $ne: null };
-    } else if (filter === 'videos') {
-      sceneFilter.video_status = 'done';
-      sceneFilter.generated_video_path = { $exists: true, $ne: null };
-    } else if (filter === 'uploaded') {
-      // uploaded per scene = image_source: 'user'
-      sceneFilter.image_source = 'user';
-      sceneFilter.image_status = 'done';
-    } else {
-      // all: semua scene yang punya image atau video
-      sceneFilter.$or = [
-        { image_status: 'done', generated_image_path: { $exists: true, $ne: null } },
-        { video_status: 'done', generated_video_path: { $exists: true, $ne: null } },
-      ];
-    }
-
-    const totalScenes = await db.collection('Scenes').countDocuments(sceneFilter);
-    const scenes = await db.collection('Scenes')
-      .find(sceneFilter)
-      .sort({ updated_at: -1, created_at: -1 })
-      .skip(filter === 'uploaded' ? 0 : offset)
-      .limit(filter === 'uploaded' ? 200 : limit)
-      .toArray();
-
-    // Resolve generation titles for scenes
-    const scriptIds = [...new Set(scenes.map((s) => s.script_id))];
-    const scripts = await db.collection('Scripts')
-      .find({ _id: { $in: scriptIds.map((id) => { try { return new ObjectId(id); } catch { return null; } }).filter(Boolean) as ObjectId[] } })
-      .toArray();
-
-    const scriptToGen: Record<string, string> = {};
-    scripts.forEach((s) => { scriptToGen[s._id.toString()] = s.generation_id; });
-
-    const uniqueGenIds = [...new Set(Object.values(scriptToGen))];
-    const generations = await db.collection('Generations')
-      .find({ _id: { $in: uniqueGenIds.map((id) => { try { return new ObjectId(id); } catch { return null; } }).filter(Boolean) as ObjectId[] } })
-      .toArray();
-
-    const genMap: Record<string, string> = {};
-    generations.forEach((g) => {
-      genMap[g._id.toString()] = g.creative_idea_title || g.product_identifier || `Generation ${g._id.toString().slice(-6)}`;
-    });
-
-    const sceneAssets = scenes.map((s) => {
-      const genId = scriptToGen[s.script_id] ?? '';
-      return {
-        id: s._id.toString(),
-        generationId: genId,
-        generationTitle: genMap[genId] ?? '',
-        type: s.image_source === 'user' ? 'uploaded' : 'generated',
-        role: null,
-        image_url: s.generated_image_path ? storagePathToUrl(s.generated_image_path) : null,
-        video_url: s.generated_video_path ? storagePathToUrl(s.generated_video_path) : null,
-        image_status: s.image_status ?? 'pending',
-        video_status: s.video_status ?? 'pending',
-        image_source: s.image_source ?? null,
-        naskah_vo: s.naskah_vo ?? '',
-        struktur: s.struktur ?? '',
-        updated_at: s.updated_at ?? s.created_at,
-      };
-    });
-
-    // ── Merge + paginate ────────────────────────────────────────────────────
-    const total = filter === 'uploaded'
-      ? uploadedAssets.length + sceneAssets.filter((s) => s.type === 'uploaded').length
-      : totalScenes + (filter === 'all' ? uploadedAssets.length : 0);
-
-    // For 'all': merge uploaded photos first, then scene assets (already paginated)
-    const merged = filter === 'all'
-      ? [...uploadedAssets, ...sceneAssets]
-      : filter === 'uploaded'
-        ? [...uploadedAssets, ...sceneAssets]
-        : sceneAssets;
-
-    const paginated = filter === 'all' || filter === 'uploaded'
-      ? merged.slice(offset, offset + limit)
-      : merged;
+    // Sort newest first, paginate
+    items.sort((a, b) => new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime());
+    const total = items.length;
+    const paginated = items.slice(offset, offset + limit);
 
     return NextResponse.json({ assets: paginated, total, limit, offset });
-  } catch {
+  } catch (error) {
+    console.error('/api/assets error:', error);
     return NextResponse.json({ error: 'Failed to fetch assets' }, { status: 500 });
   }
+}
+
+function resolvePhotoUrl(raw: unknown): string | null {
+  if (typeof raw !== 'string' || !raw) return null;
+  // Skip base64 data URLs (don't expose huge strings via list)
+  if (raw.startsWith('data:')) return null;
+  // Already a public URL or absolute path
+  if (raw.startsWith('http://') || raw.startsWith('https://') || raw.startsWith('/')) return raw;
+  // Try to resolve storage path
+  if (raw.includes('storage/')) {
+    try {
+      return storagePathToUrl(raw);
+    } catch {
+      return null;
+    }
+  }
+  return null;
 }

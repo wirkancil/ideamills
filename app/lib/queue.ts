@@ -1,29 +1,18 @@
 import { ObjectId } from 'mongodb';
 import { getDb } from './mongoClient';
-import { GenerationRequest, GenerationJobPayload, JobType } from './types';
 
 export interface Job {
   id: string;
   generation_id: string;
-  job_type: JobType;
-  payload: GenerationRequest | GenerationJobPayload;
+  payload: unknown;
 }
 
-function detectJobType(payload: GenerationRequest | GenerationJobPayload): JobType {
-  return 'creativeIdea' in payload && payload.creativeIdea ? 'structured' : 'standard';
-}
-
-export async function enqueueJob(
-  generationId: string,
-  payload: GenerationRequest | GenerationJobPayload
-): Promise<void> {
+export async function enqueueJob(generationId: string, payload: unknown): Promise<void> {
   const db = await getDb();
-  const job_type = detectJobType(payload);
 
   const result = await db.collection('JobQueue').insertOne({
     generation_id: generationId,
     payload,
-    job_type,
     status: 'pending',
     attempts: 0,
     max_attempts: 3,
@@ -37,24 +26,16 @@ export async function enqueueJob(
   }
 }
 
-export async function dequeueJob(jobType?: JobType, workerId?: string): Promise<Job | null> {
+export async function dequeueJob(workerId?: string): Promise<Job | null> {
   const db = await getDb();
   const now = new Date();
 
-  const filter: Record<string, unknown> = {
-    status: 'pending',
-    scheduled_at: { $lte: now },
-    $expr: { $lt: ['$attempts', '$max_attempts'] },
-  };
-
-  if (jobType === 'standard') {
-    filter.job_type = { $in: ['standard', null] }; // backward compat for old docs without job_type
-  } else if (jobType === 'structured') {
-    filter.job_type = 'structured';
-  }
-
   const result = await db.collection('JobQueue').findOneAndUpdate(
-    filter,
+    {
+      status: 'pending',
+      scheduled_at: { $lte: now },
+      $expr: { $lt: ['$attempts', '$max_attempts'] },
+    },
     {
       $set: { status: 'processing', started_at: now, worker_id: workerId ?? null },
       $inc: { attempts: 1 },
@@ -67,7 +48,6 @@ export async function dequeueJob(jobType?: JobType, workerId?: string): Promise<
   return {
     id: result._id instanceof ObjectId ? result._id.toString() : String(result._id),
     generation_id: result.generation_id,
-    job_type: (result.job_type as JobType) ?? 'standard',
     payload: result.payload,
   };
 }
@@ -111,12 +91,9 @@ export async function failJob(jobId: string, errorMessage: string): Promise<void
   }
 }
 
-export async function getPendingJobCount(jobType?: JobType): Promise<number> {
+export async function getPendingJobCount(): Promise<number> {
   const db = await getDb();
-  const filter: Record<string, unknown> = { status: 'pending' };
-  if (jobType === 'standard') filter.job_type = { $in: ['standard', null] };
-  else if (jobType === 'structured') filter.job_type = 'structured';
-  return db.collection('JobQueue').countDocuments(filter);
+  return db.collection('JobQueue').countDocuments({ status: 'pending' });
 }
 
 // Recover jobs stuck in 'processing' for more than timeoutMs.

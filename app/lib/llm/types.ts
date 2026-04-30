@@ -4,7 +4,9 @@ export type LayerName =
   | 'embedding'
   | 'scripting'
   | 'visualPrompt'
-  | 'text2img';
+  | 'text2img'
+  | 'ideas'
+  | 'expand';
 
 export type PresetName = 'fast' | 'balanced' | 'premium' | 'custom';
 
@@ -16,6 +18,8 @@ export interface ModelConfig {
   scripting: string;
   visualPrompt: string;
   text2img: string;
+  ideas: string;
+  expand: string;
 }
 
 export interface LLMMessage {

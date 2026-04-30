@@ -28,6 +28,7 @@ interface GenerationItem {
   image_count?: number;
   video_count?: number;
   script_count?: number;
+  format_version?: 'legacy';
 }
 
 const STATUS_CONFIG = {
@@ -153,6 +154,11 @@ export function GenerationHistory() {
                       : item.product_identifier?.slice(0, 40) || `Job ${item.id.slice(-6)}`}
                   </span>
                   <Badge variant={cfg.variant} className="text-xs h-5">{cfg.label}</Badge>
+                  {item.format_version === 'legacy' && (
+                    <Badge variant="outline" className="text-[10px] h-5 bg-amber-100 text-amber-800 border-amber-200">
+                      legacy
+                    </Badge>
+                  )}
                 </div>
 
                 {/* Progress bar for active jobs */}

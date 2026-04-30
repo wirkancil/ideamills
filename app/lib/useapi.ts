@@ -1,91 +1,128 @@
 const BASE_URL = 'https://api.useapi.net/v1';
 
-function headers(): Record<string, string> {
+function authHeader(): { Authorization: string } {
   const token = process.env.USEAPI_TOKEN;
   if (!token) throw new Error('USEAPI_TOKEN not set');
-  return {
-    Authorization: `Bearer ${token}`,
-    'Content-Type': 'application/json',
-  };
+  return { Authorization: `Bearer ${token}` };
 }
 
 export interface VideoGenerateOptions {
-  imageUrl: string;
+  imageUrl: string;             // mediaGenerationId from uploadImageAsset(), used as startImage
   prompt: string;
   aspectRatio?: 'landscape' | 'portrait';
   model?: string;
+  email?: string;
+  referenceImageUrls?: string[]; // 0–3 mediaGenerationIds, mapped to referenceImage_1..3
 }
 
 export interface VideoJob {
   jobId: string;
-  status: 'pending' | 'processing' | 'completed' | 'failed';
+  status: 'created' | 'started' | 'completed' | 'failed';
   videoUrl?: string;
   error?: string;
 }
 
-async function apiRequest<T>(
-  method: 'GET' | 'POST',
-  path: string,
-  body?: unknown
-): Promise<T> {
+async function jsonRequest<T>(method: 'GET' | 'POST', path: string, body?: unknown): Promise<T> {
   const res = await fetch(`${BASE_URL}${path}`, {
     method,
-    headers: headers(),
+    headers: { ...authHeader(), 'Content-Type': 'application/json' },
     body: body ? JSON.stringify(body) : undefined,
   });
-
   if (!res.ok) {
     const text = await res.text();
-    throw new Error(`useapi.net ${res.status}: ${text.slice(0, 300)}`);
+    throw new Error(`useapi.net ${res.status} ${path}: ${text.slice(0, 300)}`);
   }
-
   return res.json() as Promise<T>;
 }
 
+function detectMimeFromDataUrl(input: string): string {
+  if (!input.startsWith('data:')) return 'image/jpeg';
+  const match = input.match(/^data:([^;]+);base64,/);
+  return match ? match[1] : 'image/jpeg';
+}
+
+function stripDataUrlPrefix(input: string): string {
+  return input.startsWith('data:') ? input.split(',', 2)[1] : input;
+}
+
+/**
+ * Upload an image to Google Flow assets via useapi.net.
+ * Image input may be a data URL (`data:image/jpeg;base64,...`) or raw base64.
+ * Returns the nested `mediaGenerationId` string for use as `startImage` in createVideoJob.
+ */
 export async function uploadImageAsset(imageBase64: string, email?: string): Promise<string> {
   const userEmail = email ?? process.env.USEAPI_GOOGLE_EMAIL;
   if (!userEmail) throw new Error('USEAPI_GOOGLE_EMAIL not set');
 
-  const base64Data = imageBase64.startsWith('data:')
-    ? imageBase64.split(',')[1]
-    : imageBase64;
+  const mime = detectMimeFromDataUrl(imageBase64);
+  const buffer = Buffer.from(stripDataUrlPrefix(imageBase64), 'base64');
 
-  const result = await apiRequest<{ mediaGenerationId: string }>(
-    'POST',
-    `/assets/${encodeURIComponent(userEmail)}`,
-    { image: base64Data }
+  const res = await fetch(
+    `${BASE_URL}/google-flow/assets/${encodeURIComponent(userEmail)}`,
+    {
+      method: 'POST',
+      headers: { ...authHeader(), 'Content-Type': mime },
+      body: new Uint8Array(buffer),
+    }
   );
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(`useapi.net ${res.status} upload: ${text.slice(0, 300)}`);
+  }
 
-  return result.mediaGenerationId;
+  const result = (await res.json()) as {
+    mediaGenerationId?: { mediaGenerationId?: string };
+  };
+  const id = result.mediaGenerationId?.mediaGenerationId;
+  if (!id) throw new Error('useapi.net upload: missing mediaGenerationId in response');
+  return id;
 }
 
 export async function createVideoJob(opts: VideoGenerateOptions): Promise<string> {
-  const result = await apiRequest<{ jobId: string }>(
+  const userEmail = opts.email ?? process.env.USEAPI_GOOGLE_EMAIL;
+  if (!userEmail) throw new Error('USEAPI_GOOGLE_EMAIL not set');
+
+  const refs = opts.referenceImageUrls ?? [];
+  const referenceFields: Record<string, string> = {};
+  if (refs[0]) referenceFields.referenceImage_1 = refs[0];
+  if (refs[1]) referenceFields.referenceImage_2 = refs[1];
+  if (refs[2]) referenceFields.referenceImage_3 = refs[2];
+
+  const result = await jsonRequest<{ jobid: string }>(
     'POST',
     '/google-flow/videos',
     {
-      mediaGenerationId: opts.imageUrl,
+      email: userEmail,
       prompt: opts.prompt,
       model: opts.model ?? 'veo-3.1-fast',
       aspectRatio: opts.aspectRatio ?? 'landscape',
+      startImage: opts.imageUrl,
       async: true,
+      ...referenceFields,
     }
   );
-  return result.jobId;
+  return result.jobid;
+}
+
+interface RawJobResponse {
+  jobid: string;
+  status: string;
+  response?: {
+    media?: Array<{
+      videoUrl?: string;
+      thumbnailUrl?: string;
+    }>;
+  };
+  error?: string;
 }
 
 export async function pollVideoJob(jobId: string): Promise<VideoJob> {
-  const result = await apiRequest<{
-    jobId: string;
-    status: string;
-    video?: { url: string };
-    error?: string;
-  }>('GET', `/jobs/${jobId}`);
-
+  const result = await jsonRequest<RawJobResponse>('GET', `/google-flow/jobs/${jobId}`);
+  const videoUrl = result.response?.media?.[0]?.videoUrl;
   return {
-    jobId: result.jobId,
+    jobId: result.jobid,
     status: result.status as VideoJob['status'],
-    videoUrl: result.video?.url,
+    videoUrl,
     error: result.error,
   };
 }

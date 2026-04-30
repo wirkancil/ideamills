@@ -54,7 +54,8 @@ export function resolveStoragePath(type: 'images' | 'videos', jobId: string, fil
 }
 
 export function storagePathToUrl(absolutePath: string): string {
-  const base = storagePath();
-  const relative = absolutePath.replace(base, '').replace(/^[\\/]/, '');
-  return `/api/storage/${relative.replace(/\\/g, '/')}`;
+  const base = path.resolve(storagePath());
+  const target = path.resolve(absolutePath);
+  const relative = path.relative(base, target).replace(/\\/g, '/');
+  return `/api/storage/${relative}`;
 }

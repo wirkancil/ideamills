@@ -3,16 +3,14 @@ import path from 'path';
 import os from 'os';
 dotenv.config({ path: path.join(process.cwd(), '.env.local') });
 
-import { STANDARD_CONCURRENCY, STRUCTURED_CONCURRENCY } from '../app/lib/workerConfig';
+import { WORKER_CONCURRENCY } from '../app/lib/workerConfig';
 
 const POLL_INTERVAL_MS = 2000;
 const STUCK_RECOVERY_INTERVAL_MS = 5 * 60 * 1000;
 
-// Unique identity for this worker process — used for stuck-job safety
 const WORKER_ID = `${os.hostname()}:${process.pid}`;
 
-let activeStandard = 0;
-let activeStructured = 0;
+let activeJobs = 0;
 
 async function bootstrap() {
   const { dequeueJob, completeJob, failJob, getPendingJobCount, recoverStuckJobs } =
@@ -20,38 +18,35 @@ async function bootstrap() {
   const { runGeneration } = await import('./runGeneration');
   const { recordCompletion } = await import('../app/lib/workerStats');
 
-  async function processJob(type: 'standard' | 'structured') {
-    const isStandard = type === 'standard';
-    if (isStandard && activeStandard >= STANDARD_CONCURRENCY) return;
-    if (!isStandard && activeStructured >= STRUCTURED_CONCURRENCY) return;
+  async function processJob() {
+    if (activeJobs >= WORKER_CONCURRENCY) return;
 
-    const job = await dequeueJob(type, WORKER_ID);
+    const job = await dequeueJob(WORKER_ID);
     if (!job) return;
 
-    if (isStandard) activeStandard++; else activeStructured++;
+    activeJobs++;
     const startedAt = Date.now();
 
     console.log(
-      `[Worker:${WORKER_ID}] ${type} job ${job.id.slice(-6)} started` +
-      ` — std:${activeStandard}/${STANDARD_CONCURRENCY} str:${activeStructured}/${STRUCTURED_CONCURRENCY}`
+      `[Worker:${WORKER_ID}] job ${job.id.slice(-6)} started — active:${activeJobs}/${WORKER_CONCURRENCY}`
     );
 
     try {
       await runGeneration(job.generation_id, job.payload);
       await completeJob(job.id);
       const durationMs = Date.now() - startedAt;
-      await recordCompletion(type, durationMs, job.id);
+      await recordCompletion(durationMs, job.id);
       console.log(`[Worker] Job ${job.id.slice(-6)} done in ${Math.round(durationMs / 1000)}s`);
     } catch (error) {
       const msg = error instanceof Error ? error.message : String(error);
       console.error(`[Worker] Job ${job.id.slice(-6)} failed: ${msg}`);
       await failJob(job.id, msg);
     } finally {
-      if (isStandard) activeStandard--; else activeStructured--;
+      activeJobs--;
     }
   }
 
-  // Periodic stuck-job recovery — exclude this worker's own jobs
+  // Periodic stuck-job recovery
   setInterval(async () => {
     try {
       const recovered = await recoverStuckJobs(15 * 60 * 1000, [WORKER_ID]);
@@ -62,31 +57,15 @@ async function bootstrap() {
   }, STUCK_RECOVERY_INTERVAL_MS);
 
   async function workerLoop() {
-    console.log(
-      `[Worker] ${WORKER_ID} started` +
-      ` — std concurrency: ${STANDARD_CONCURRENCY}, structured: ${STRUCTURED_CONCURRENCY}`
-    );
+    console.log(`[Worker] ${WORKER_ID} started — concurrency: ${WORKER_CONCURRENCY}`);
 
     while (true) {
       try {
-        const [pendingStd, pendingStr] = await Promise.all([
-          getPendingJobCount('standard'),
-          getPendingJobCount('structured'),
-        ]);
-
-        // Fill standard slots
-        if (pendingStd > 0) {
-          const slots = STANDARD_CONCURRENCY - activeStandard;
+        const pending = await getPendingJobCount();
+        if (pending > 0) {
+          const slots = WORKER_CONCURRENCY - activeJobs;
           for (let i = 0; i < slots; i++) {
-            processJob('standard').catch((e) => console.error('[Worker] Unhandled:', e));
-          }
-        }
-
-        // Fill structured slots
-        if (pendingStr > 0) {
-          const slots = STRUCTURED_CONCURRENCY - activeStructured;
-          for (let i = 0; i < slots; i++) {
-            processJob('structured').catch((e) => console.error('[Worker] Unhandled:', e));
+            processJob().catch((e) => console.error('[Worker] Unhandled:', e));
           }
         }
       } catch (error) {

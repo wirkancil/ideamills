@@ -50,3 +50,9 @@ test-*.js
 test-*.ts
 test.json
 test.png
+
+# mongodb backups (created by mongodump during refactor)
+/backup-*/
+
+# legacy planning artifacts (markdown only)
+/contohsekarang.md

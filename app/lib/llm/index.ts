@@ -2,16 +2,13 @@ import type { ProductDescription, ModelDescription } from '../types';
 import { chatCompletion, embeddings, imageGeneration } from './client';
 import { DEFAULT_PRESET, PRESETS, resolvePreset, isValidModel } from './registry';
 import {
-  GENERIC_MODEL_PROMPT,
-  IDEATION_SYSTEM,
-  IDEATION_USER,
-  SCRIPTING_SYSTEM,
-  SCRIPTING_USER,
-  VISION_MODEL_PROMPT,
-  VISION_PRODUCT_PROMPT,
-  VISUAL_PROMPT_SYSTEM,
-  VISUAL_PROMPT_USER,
+  VISION_COMBINED_PROMPT,
+  IDEAS_SYSTEM,
+  IDEAS_USER,
+  EXPAND_SYSTEM,
+  EXPAND_USER,
 } from './prompts';
+import type { Idea } from '../types';
 import {
   limit,
   logUsage,
@@ -87,160 +84,6 @@ async function chat<T>(
     }
     return raw as unknown as T;
   });
-}
-
-export async function visionDescribeProduct(
-  imageInput: string,
-  basicIdea?: string,
-  visualDescription?: string,
-  config?: Partial<ModelConfig>,
-  jobId?: string
-): Promise<ProductDescription> {
-  const { vision } = cfg(config);
-  const image = await normalizeImage(imageInput);
-
-  let prompt = VISION_PRODUCT_PROMPT;
-  if (basicIdea?.trim()) prompt += `\n\nContext - Product Idea: "${basicIdea}"`;
-  if (visualDescription?.trim()) prompt += `\n\nVisual Description/Overrides: "${visualDescription}"`;
-
-  const parsed = await chat<Record<string, unknown>>(jobId, 'vision', vision, [
-    {
-      role: 'user',
-      content: [
-        { type: 'text', text: prompt },
-        { type: 'image_url', image_url: { url: image } },
-      ],
-    },
-  ], { maxTokens: 1000, responseFormat: 'json_object', timeoutMs: 60_000 });
-
-  const normalized = { ...parsed } as Record<string, unknown>;
-  if (normalized.benefits && !normalized.key_benefit) {
-    normalized.key_benefit = normalized.benefits;
-    delete normalized.benefits;
-  }
-  if (normalized.visual_notes && !normalized.additional_notes) {
-    normalized.additional_notes = normalized.visual_notes;
-    delete normalized.visual_notes;
-  }
-  if (!normalized.notable_text) normalized.notable_text = '';
-
-  return normalized as unknown as ProductDescription;
-}
-
-export async function visionDescribeModel(
-  imageInput: string,
-  config?: Partial<ModelConfig>,
-  jobId?: string
-): Promise<ModelDescription> {
-  const { vision } = cfg(config);
-  const image = await normalizeImage(imageInput);
-
-  const parsed = await chat<Record<string, unknown>>(jobId, 'vision', vision, [
-    {
-      role: 'user',
-      content: [
-        { type: 'text', text: VISION_MODEL_PROMPT },
-        { type: 'image_url', image_url: { url: image } },
-      ],
-    },
-  ], { maxTokens: 1000, responseFormat: 'json_object', timeoutMs: 60_000 });
-
-  return { ...parsed, source: 'vision' } as unknown as ModelDescription;
-}
-
-export async function genericModelDescribe(
-  basicIdea: string,
-  config?: Partial<ModelConfig>,
-  jobId?: string
-): Promise<ModelDescription> {
-  const { ideation } = cfg(config);
-  const parsed = await chat<Record<string, unknown>>(jobId, 'ideation', ideation, [
-    { role: 'user', content: GENERIC_MODEL_PROMPT(basicIdea) },
-  ], { maxTokens: 300, responseFormat: 'json_object' });
-
-  return { ...parsed, source: 'generic' } as unknown as ModelDescription;
-}
-
-export async function ideation50(
-  product: ProductDescription,
-  basicIdea: string,
-  config?: Partial<ModelConfig>,
-  jobId?: string
-): Promise<string[]> {
-  const { ideation } = cfg(config);
-  const parsed = await chat<unknown>(jobId, 'ideation', ideation, [
-    { role: 'system', content: IDEATION_SYSTEM },
-    { role: 'user', content: IDEATION_USER(product, basicIdea) },
-  ], { maxTokens: 2000, responseFormat: 'json_object' });
-
-  return extractIdeasArray(parsed);
-}
-
-function extractIdeasArray(parsed: unknown): string[] {
-  if (Array.isArray(parsed)) return parsed as string[];
-  if (!parsed || typeof parsed !== 'object') return [];
-  const p = parsed as Record<string, unknown>;
-
-  if (Array.isArray(p.ideas)) return p.ideas as string[];
-  if (Array.isArray(p.marketing_angles)) return p.marketing_angles as string[];
-
-  if (Array.isArray(p.angles)) {
-    const angles = p.angles as unknown[];
-    if (angles.length > 0 && typeof angles[0] === 'object' && angles[0] && 'angles' in (angles[0] as object)) {
-      return angles.flatMap((c) => ((c as { angles?: string[] }).angles ?? []));
-    }
-    return angles as string[];
-  }
-
-  if (Array.isArray(p.categories)) {
-    return (p.categories as Array<{ angles?: string[] }>).flatMap((c) => c.angles ?? []);
-  }
-  return [];
-}
-
-export async function script5(
-  theme: string,
-  config?: Partial<ModelConfig>,
-  jobId?: string
-): Promise<unknown[]> {
-  const { scripting } = cfg(config);
-  const parsed = await chat<{ scripts?: unknown[] }>(jobId, 'scripting', scripting, [
-    { role: 'system', content: SCRIPTING_SYSTEM },
-    { role: 'user', content: SCRIPTING_USER(theme) },
-  ], { maxTokens: 2500, responseFormat: 'json_object' });
-
-  return parsed.scripts ?? [];
-}
-
-export async function enrichVisualPrompts(
-  product: ProductDescription,
-  model: ModelDescription,
-  overrides: string,
-  scripts: unknown[],
-  config?: Partial<ModelConfig>,
-  jobId?: string
-): Promise<unknown[]> {
-  const { visualPrompt } = cfg(config);
-  const chunkSize = 25;
-  const out: unknown[] = [];
-
-  for (let i = 0; i < scripts.length; i += chunkSize) {
-    const chunk = scripts.slice(i, i + chunkSize);
-    const parsed = await chat<{ scripts?: unknown[]; directors_script?: unknown }>(
-      jobId,
-      'visualPrompt',
-      visualPrompt,
-      [
-        { role: 'system', content: VISUAL_PROMPT_SYSTEM },
-        { role: 'user', content: VISUAL_PROMPT_USER(product, model, overrides, chunk) },
-      ],
-      { maxTokens: 12000, responseFormat: 'json_object', timeoutMs: 180_000 }
-    );
-    const enriched = parsed.scripts ?? (parsed.directors_script ? [parsed] : []);
-    out.push(...enriched);
-  }
-
-  return out;
 }
 
 export async function embedBatch(
@@ -368,4 +211,107 @@ export async function generateImage(
   });
 
   return { images, model: res.model, latencyMs: Date.now() - started };
+}
+
+// ============================================================
+// V2 FUNCTIONS — Studio Clean Flow
+// ============================================================
+
+interface VisionCombinedResult {
+  productAnalysis: ProductDescription;
+  modelAnalysis: ModelDescription | null;
+}
+
+export async function visionCombined(
+  productImage: string,
+  modelImage: string | null,
+  brief: string,
+  config?: Partial<ModelConfig>,
+  jobId?: string
+): Promise<VisionCombinedResult> {
+  const { vision } = cfg(config);
+  const productImg = await normalizeImage(productImage);
+  const modelImg = modelImage ? await normalizeImage(modelImage) : null;
+
+  const userContent: LLMMessage['content'] = [
+    {
+      type: 'text',
+      text: VISION_COMBINED_PROMPT(brief) + (modelImg
+        ? '\n\n[Foto kedua adalah foto model.]'
+        : '\n\n[Tidak ada foto model — beri persona suggestion.]'),
+    },
+    { type: 'image_url', image_url: { url: productImg } },
+  ];
+  if (modelImg) {
+    userContent.push({ type: 'image_url', image_url: { url: modelImg } });
+  }
+
+  const parsed = await chat<{ productAnalysis: unknown; modelAnalysis: unknown }>(
+    jobId,
+    'vision',
+    vision,
+    [{ role: 'user', content: userContent }],
+    { maxTokens: 1500, responseFormat: 'json_object', timeoutMs: 90_000 }
+  );
+
+  return {
+    productAnalysis: parsed.productAnalysis as ProductDescription,
+    modelAnalysis: parsed.modelAnalysis
+      ? ({ ...(parsed.modelAnalysis as object), source: 'vision' } as ModelDescription)
+      : null,
+  };
+}
+
+export async function ideateFromImages(
+  productAnalysis: ProductDescription,
+  modelAnalysis: ModelDescription | null,
+  brief: string,
+  config?: Partial<ModelConfig>,
+  jobId?: string
+): Promise<Idea[]> {
+  const { ideas } = cfg(config);
+  const parsed = await chat<{ ideas?: Idea[] }>(
+    jobId,
+    'ideas',
+    ideas,
+    [
+      { role: 'system', content: IDEAS_SYSTEM },
+      { role: 'user', content: IDEAS_USER(productAnalysis, modelAnalysis, brief) },
+    ],
+    { maxTokens: 2500, responseFormat: 'json_object', timeoutMs: 60_000 }
+  );
+
+  const result = parsed.ideas ?? [];
+  if (!Array.isArray(result) || result.length < 2) {
+    throw new LLMError('Ideation returned < 2 ideas', 'INVALID_RESPONSE', 'openrouter', ideas);
+  }
+  return result;
+}
+
+export async function expandToClips(
+  productAnalysis: ProductDescription,
+  modelAnalysis: ModelDescription | null,
+  selectedIdea: Idea,
+  brief: string,
+  config?: Partial<ModelConfig>,
+  jobId?: string
+): Promise<{ styleNotes: string; clips: Array<{ prompt: string }> }> {
+  const { expand } = cfg(config);
+  const parsed = await chat<{ styleNotes?: string; clips?: Array<{ prompt: string }> }>(
+    jobId,
+    'expand',
+    expand,
+    [
+      { role: 'system', content: EXPAND_SYSTEM },
+      { role: 'user', content: EXPAND_USER(productAnalysis, modelAnalysis, selectedIdea, brief) },
+    ],
+    { maxTokens: 3000, responseFormat: 'json_object', timeoutMs: 90_000 }
+  );
+
+  const styleNotes = parsed.styleNotes ?? '';
+  const clips = parsed.clips ?? [];
+  if (!Array.isArray(clips) || clips.length < 2) {
+    throw new LLMError('Expand returned < 2 clips', 'INVALID_RESPONSE', 'openrouter', expand);
+  }
+  return { styleNotes, clips };
 }

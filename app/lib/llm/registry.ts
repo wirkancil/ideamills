@@ -52,6 +52,20 @@ export const MODEL_REGISTRY: Record<LayerName, ModelEntry[]> = {
     { id: 'google/gemini-2.5-flash-image', label: 'Gemini 2.5 Flash Image', tier: 'balanced' },
     { id: 'google/gemini-3.1-flash-image-preview', label: 'Gemini 3.1 Flash Image (Preview)', tier: 'premium' },
   ],
+
+  ideas: [
+    { id: 'google/gemini-2.5-flash', label: 'Gemini 2.5 Flash', tier: 'budget' },
+    { id: 'google/gemini-2.5-pro', label: 'Gemini 2.5 Pro', tier: 'balanced' },
+    { id: 'deepseek/deepseek-v3.2', label: 'DeepSeek V3.2', tier: 'budget' },
+    { id: 'anthropic/claude-sonnet-4.6', label: 'Claude Sonnet 4.6', tier: 'premium' },
+  ],
+
+  expand: [
+    { id: 'google/gemini-2.5-flash', label: 'Gemini 2.5 Flash', tier: 'budget' },
+    { id: 'google/gemini-2.5-pro', label: 'Gemini 2.5 Pro', tier: 'balanced' },
+    { id: 'deepseek/deepseek-v3.2', label: 'DeepSeek V3.2', tier: 'budget' },
+    { id: 'anthropic/claude-sonnet-4.6', label: 'Claude Sonnet 4.6', tier: 'premium' },
+  ],
 };
 
 export const PRESETS: Record<Exclude<PresetName, 'custom'>, Omit<ModelConfig, 'preset'>> = {
@@ -62,6 +76,8 @@ export const PRESETS: Record<Exclude<PresetName, 'custom'>, Omit<ModelConfig, 'p
     scripting: 'google/gemini-2.5-flash',
     visualPrompt: 'deepseek/deepseek-v3.2',
     text2img: 'google/gemini-2.5-flash-image',
+    ideas: 'google/gemini-2.5-flash',
+    expand: 'google/gemini-2.5-flash',
   },
   balanced: {
     vision: 'google/gemini-2.5-pro',
@@ -70,6 +86,8 @@ export const PRESETS: Record<Exclude<PresetName, 'custom'>, Omit<ModelConfig, 'p
     scripting: 'google/gemini-2.5-flash',
     visualPrompt: 'anthropic/claude-sonnet-4.6',
     text2img: 'google/gemini-2.5-flash-image',
+    ideas: 'google/gemini-2.5-flash',
+    expand: 'deepseek/deepseek-v3.2',
   },
   premium: {
     vision: 'anthropic/claude-sonnet-4.6',
@@ -78,6 +96,8 @@ export const PRESETS: Record<Exclude<PresetName, 'custom'>, Omit<ModelConfig, 'p
     scripting: 'google/gemini-2.5-pro',
     visualPrompt: 'anthropic/claude-sonnet-4.6',
     text2img: 'google/gemini-3.1-flash-image-preview',
+    ideas: 'anthropic/claude-sonnet-4.6',
+    expand: 'anthropic/claude-sonnet-4.6',
   },
 };
 

@@ -88,8 +88,13 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({
       generations: (generations || []).map((g: any) => {
         const gid = g._id instanceof ObjectId ? g._id.toString() : String(g._id);
+        const isV2 = Array.isArray(g.clips);
+        const clips = isV2 ? (g.clips as any[]) : [];
+        const v2Image = clips.filter((c) => c.generated_image_path).length;
+        const v2Video = clips.filter((c) => c.generated_video_path).length;
         return {
           id: gid,
+          format_version: g.format_version,
           status: g.status,
           progress: g.progress || 0,
           product_identifier: g.product_identifier,
@@ -97,9 +102,9 @@ export async function GET(request: NextRequest) {
           created_at: g.created_at,
           updated_at: g.updated_at,
           error_message: g.error_message,
-          script_count: scriptCounts[gid] ?? 0,
-          image_count: imageCounts[gid] ?? 0,
-          video_count: videoCounts[gid] ?? 0,
+          script_count: isV2 ? clips.length : (scriptCounts[gid] ?? 0),
+          image_count: isV2 ? v2Image : (imageCounts[gid] ?? 0),
+          video_count: isV2 ? v2Video : (videoCounts[gid] ?? 0),
         };
       }),
       total: generations?.length || 0,

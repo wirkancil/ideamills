@@ -1,8 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getDb } from '@/app/lib/mongoClient';
 import { getAvgCompletionMs } from '@/app/lib/workerStats';
-import { STANDARD_CONCURRENCY, STRUCTURED_CONCURRENCY } from '@/app/lib/workerConfig';
-import type { JobType } from '@/app/lib/types';
+import { WORKER_CONCURRENCY } from '@/app/lib/workerConfig';
 
 export async function GET(req: NextRequest) {
   const generationId = req.nextUrl.searchParams.get('generationId');
@@ -20,41 +19,20 @@ export async function GET(req: NextRequest) {
   const status = job.status as string;
 
   if (status === 'completed' || status === 'failed') {
-    return NextResponse.json({
-      position: 0,
-      ahead: 0,
-      estimatedWaitMs: 0,
-      jobType: job.job_type ?? 'standard',
-      status,
-    });
+    return NextResponse.json({ position: 0, ahead: 0, estimatedWaitMs: 0, status });
   }
 
-  const jobType: JobType = (job.job_type as JobType) ?? 'standard';
-
-  // Count jobs ahead: same type, pending/processing, scheduled earlier
-  const typeFilter =
-    jobType === 'standard'
-      ? { $in: ['standard', null] }
-      : 'structured';
-
+  // Count jobs ahead: pending/processing, scheduled earlier
   const ahead = await db.collection('JobQueue').countDocuments({
     status: { $in: ['pending', 'processing'] },
-    job_type: typeFilter,
     scheduled_at: { $lt: job.scheduled_at },
   });
 
   const position = ahead + 1;
-  const avgMs = await getAvgCompletionMs(jobType);
-  const concurrency = jobType === 'standard' ? STANDARD_CONCURRENCY : STRUCTURED_CONCURRENCY;
+  const avgMs = await getAvgCompletionMs();
 
   // ETA accounts for parallel slots: ceil(ahead / concurrency) batches × avg time
-  const estimatedWaitMs = Math.ceil(ahead / concurrency) * avgMs;
+  const estimatedWaitMs = Math.ceil(ahead / WORKER_CONCURRENCY) * avgMs;
 
-  return NextResponse.json({
-    position,
-    ahead,
-    estimatedWaitMs,
-    jobType,
-    status,
-  });
+  return NextResponse.json({ position, ahead, estimatedWaitMs, status });
 }
