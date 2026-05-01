@@ -34,7 +34,7 @@ function cfg(config?: Partial<ModelConfig> & { preset?: ModelConfig['preset'] })
 }
 
 async function chat<T>(
-  jobId: string | undefined,
+  ctx: { jobId?: string; generationId?: string } | undefined,
   layer: string,
   model: string,
   messages: LLMMessage[],
@@ -75,7 +75,8 @@ async function chat<T>(
       }
 
       logUsage({
-        jobId,
+        jobId: ctx?.jobId,
+        generationId: ctx?.generationId,
         layer,
         model: res.model,
         promptTokens: res.usage?.prompt_tokens ?? 0,
@@ -114,7 +115,7 @@ export async function visionCombined(
   modelImage: string | null,
   brief: string,
   config?: Partial<ModelConfig>,
-  jobId?: string
+  ctx?: { jobId?: string; generationId?: string }
 ): Promise<VisionCombinedResult> {
   const { vision } = cfg(config);
   const productImg = await normalizeImage(productImage);
@@ -123,9 +124,7 @@ export async function visionCombined(
   const userContent: LLMMessage['content'] = [
     {
       type: 'text',
-      text: VISION_COMBINED_PROMPT(brief) + (modelImg
-        ? '\n\n[Foto kedua adalah foto model.]'
-        : '\n\n[Tidak ada foto model — beri persona suggestion.]'),
+      text: VISION_COMBINED_PROMPT(brief, !!modelImg),
     },
     { type: 'image_url', image_url: { url: productImg } },
   ];
@@ -134,7 +133,7 @@ export async function visionCombined(
   }
 
   const parsed = await chat<{ productAnalysis: unknown; modelAnalysis: unknown }>(
-    jobId,
+    ctx,
     'vision',
     vision,
     [{ role: 'user', content: userContent }],
@@ -154,11 +153,11 @@ export async function ideateFromImages(
   modelAnalysis: ModelDescription | null,
   brief: string,
   config?: Partial<ModelConfig>,
-  jobId?: string
+  ctx?: { jobId?: string; generationId?: string }
 ): Promise<Idea[]> {
   const { ideas } = cfg(config);
   const parsed = await chat<{ ideas?: Idea[] }>(
-    jobId,
+    ctx,
     'ideas',
     ideas,
     [
@@ -180,11 +179,11 @@ export async function expandToClips(
   modelAnalysis: ModelDescription | null,
   selectedIdea: Idea,
   config?: Partial<ModelConfig>,
-  jobId?: string
+  ctx?: { jobId?: string; generationId?: string }
 ): Promise<{ productNotes: string; styleNotes: string; clips: Array<{ prompt: string }> }> {
   const { expand } = cfg(config);
   const parsed = await chat<{ productNotes?: string; styleNotes?: string; clips?: Array<{ prompt: string }> }>(
-    jobId,
+    ctx,
     'expand',
     expand,
     [
@@ -210,11 +209,11 @@ export async function expandToClips(
 export async function enhanceVeoPrompt(
   rawPrompt: string,
   config?: Partial<ModelConfig>,
-  jobId?: string
+  ctx?: { jobId?: string; generationId?: string }
 ): Promise<string> {
   const { expand } = cfg(config);
   const result = await chat<string>(
-    jobId,
+    ctx,
     'expand',
     expand,
     [

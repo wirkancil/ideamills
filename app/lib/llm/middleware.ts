@@ -105,6 +105,7 @@ export async function normalizeImage(input: string, mimeType = 'image/jpeg'): Pr
 
 export interface LogEntry {
   jobId?: string;
+  generationId?: string;
   layer: string;
   model: string;
   promptTokens: number;

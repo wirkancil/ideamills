@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { Sparkles, History, Clapperboard, Images, FileText } from 'lucide-react';
+import { Sparkles, History, Clapperboard, Images, FileText, Activity } from 'lucide-react';
 
 export function TopBar() {
   const pathname = usePathname();
@@ -60,6 +60,17 @@ export function TopBar() {
             >
               <History className="w-4 h-4" />
               Riwayat
+            </Link>
+            <Link
+              href="/monitoring"
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium transition-colors ${
+                pathname === '/monitoring'
+                  ? 'bg-primary text-primary-foreground'
+                  : 'text-muted-foreground hover:text-foreground hover:bg-muted'
+              }`}
+            >
+              <Activity className="w-4 h-4" />
+              Monitoring
             </Link>
           </div>
         </div>

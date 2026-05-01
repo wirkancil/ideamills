@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { generateImage } from '@/app/lib/useapi';
+import { logAssetUsage } from '@/app/lib/monitoring/assetUsage';
+import { GOOGLE_FLOW_CREDIT_COSTS, GOOGLE_FLOW_CREDIT_PRICE_USD } from '@/app/lib/monitoring/creditCosts';
 
 const RequestSchema = z.object({
   prompt: z.string().min(10).max(5000),
@@ -8,6 +10,8 @@ const RequestSchema = z.object({
   styleNotes: z.string().max(2000).optional().default(''),
   aspectRatio: z.enum(['portrait', 'landscape']).optional().default('portrait'),
   model: z.enum(['imagen-4', 'nano-banana-2', 'nano-banana-pro']).optional().default('imagen-4'),
+  generationId: z.string().optional(),
+  clipIndex: z.number().int().optional(),
 });
 
 /**
@@ -45,7 +49,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const { prompt, productNotes, styleNotes, aspectRatio, model } = parsed.data;
+    const { prompt, productNotes, styleNotes, aspectRatio, model, generationId, clipIndex } = parsed.data;
     const cleanedPrompt = stripVideoInstructions(prompt);
     const parts = [productNotes, styleNotes, cleanedPrompt].filter((s) => s.trim().length > 0);
     // Anti-duplication + anti-text-overlay cue.
@@ -65,6 +69,19 @@ export async function POST(request: NextRequest) {
       aspectRatio: imgAspect,
       model,
     });
+
+    if (generationId !== undefined) {
+      const creditCost = GOOGLE_FLOW_CREDIT_COSTS[model] ?? GOOGLE_FLOW_CREDIT_COSTS['imagen-4'];
+      logAssetUsage({
+        generationId,
+        clipIndex: clipIndex ?? -1,
+        service: 'imagen',
+        model,
+        creditCost,
+        costUsd: creditCost * GOOGLE_FLOW_CREDIT_PRICE_USD,
+        createdAt: new Date(),
+      });
+    }
 
     // Download fifeUrl, convert ke base64 data URL
     const fetched = await fetch(imgRes.imageUrl);

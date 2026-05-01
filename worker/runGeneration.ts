@@ -2,6 +2,8 @@ import { ObjectId } from 'mongodb';
 import { getDb } from '../app/lib/mongoClient';
 import { uploadImageAsset, createVideoJob, waitForVideo } from '../app/lib/useapi';
 import { saveImage, downloadAndSaveVideo, storagePathToUrl } from '../app/lib/storage';
+import { logAssetUsage } from '../app/lib/monitoring/assetUsage';
+import { GOOGLE_FLOW_CREDIT_COSTS, GOOGLE_FLOW_CREDIT_PRICE_USD } from '../app/lib/monitoring/creditCosts';
 import type { Clip, ClipImageMode } from '../app/lib/types';
 
 // ============================================================
@@ -236,6 +238,16 @@ async function generateClipAssets(
   );
 
   const videoUrl = await waitForVideo(veoJobId);
+  const creditCost = GOOGLE_FLOW_CREDIT_COSTS[veoModel] ?? GOOGLE_FLOW_CREDIT_COSTS['veo-3.1-fast'];
+  logAssetUsage({
+    generationId,
+    clipIndex: clip.index,
+    service: 'veo',
+    model: veoModel,
+    creditCost,
+    costUsd: creditCost * GOOGLE_FLOW_CREDIT_PRICE_USD,
+    createdAt: new Date(),
+  });
   const videoFilePath = await downloadAndSaveVideo(videoUrl, generationId, `clip-${clip.index}.mp4`);
   const videoPublicUrl = storagePathToUrl(videoFilePath);
 

@@ -44,17 +44,20 @@ export async function POST(request: NextRequest) {
       ...(textModel ? { ideas: textModel, expand: textModel } : {}),
     };
 
+    const ctx = generationId ? { generationId } : undefined;
     const visionResult = await visionCombined(
       productImageUrl,
       modelImageUrl ?? null,
       brief,
-      visionConfig
+      visionConfig,
+      ctx
     );
     const ideas = await ideateFromImages(
       visionResult.productAnalysis,
       visionResult.modelAnalysis,
       brief,
-      textConfig
+      textConfig,
+      ctx
     );
 
     const db = await getDb();
@@ -108,6 +111,7 @@ export async function POST(request: NextRequest) {
         modelAnalysis: visionResult.modelAnalysis,
         ideas,
         product_identifier: visionResult.productAnalysis.brand ?? 'Unknown',
+        source: 'studio',
         status: 'queued',
         progress: 0,
         progress_label: 'Ide siap',

@@ -56,18 +56,20 @@ export async function POST(request: NextRequest) {
     // di step ideation untuk generate ide. Setelah user pilih ide, selectedIdea.content
     // adalah versi yang sudah ringkas dan curated. Pass brief lagi = double-counting,
     // bikin output expand berlebihan dan mengulang detail brief mentah.
+    const ctx = { generationId };
     const result = await expandToClips(
       productAnalysis,
       modelAnalysis,
       selectedIdea,
-      modelConfig as Parameters<typeof expandToClips>[3]
+      modelConfig as Parameters<typeof expandToClips>[3],
+      ctx
     );
 
     // Auto-enhance: flip negation ke positive phrasing sebelum return ke client
     const enhancedClips = await Promise.all(
       result.clips.map(async (c) => {
         try {
-          const enhanced = await enhanceVeoPrompt(c.prompt, modelConfig as Parameters<typeof enhanceVeoPrompt>[1]);
+          const enhanced = await enhanceVeoPrompt(c.prompt, modelConfig as Parameters<typeof enhanceVeoPrompt>[1], ctx);
           return { prompt: enhanced };
         } catch {
           return { prompt: c.prompt };

@@ -8,6 +8,8 @@
     "start": "next start",
     "start:all": "./start.sh",
     "lint": "next lint",
+    "test": "vitest run",
+    "test:watch": "vitest",
     "worker": "tsx worker/poll.ts",
     "setup:env": "tsx scripts/setup-env.ts",
     "validate:env": "tsx scripts/validate-env.ts",
@@ -61,6 +63,7 @@
     "tailwindcss": "^3.4.1",
     "ts-node": "^10.9.2",
     "tsx": "^4.7.0",
-    "typescript": "^5.3.3"
+    "typescript": "^5.3.3",
+    "vitest": "^2.1.9"
   }
 }

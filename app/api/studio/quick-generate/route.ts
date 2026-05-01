@@ -71,6 +71,7 @@ export async function POST(request: NextRequest) {
       creative_idea_title: scriptTitle ?? null,
       styleNotes: '',
       clips,
+      source: 'quick',
       status: 'queued',
       progress: 0,
       progress_label: 'Antrian video',
