@@ -1,0 +1,55 @@
+services:
+  app:
+    build:
+      context: .
+      target: runner
+    image: ideamills-app
+    container_name: ideamills-app
+    restart: unless-stopped
+    ports:
+      - "4000:4000"
+    env_file: .env.production
+    environment:
+      - NODE_ENV=production
+      - PORT=4000
+      - MONGODB_URI=mongodb://mongo:27017/ideamills
+    volumes:
+      - storage:/app/storage
+    depends_on:
+      mongo:
+        condition: service_healthy
+    command: node server.js
+
+  worker:
+    build:
+      context: .
+      target: runner
+    image: ideamills-app
+    container_name: ideamills-worker
+    restart: unless-stopped
+    env_file: .env.production
+    environment:
+      - NODE_ENV=production
+      - MONGODB_URI=mongodb://mongo:27017/ideamills
+    volumes:
+      - storage:/app/storage
+    depends_on:
+      mongo:
+        condition: service_healthy
+    command: node_modules/.bin/tsx worker/poll.ts
+
+  mongo:
+    image: mongo:7
+    container_name: ideamills-mongo
+    restart: unless-stopped
+    volumes:
+      - mongo_data:/data/db
+    healthcheck:
+      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  storage:
+  mongo_data:

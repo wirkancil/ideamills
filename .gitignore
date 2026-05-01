@@ -1,5 +1,8 @@
 # dependencies
 /node_modules
+
+# production secrets
+.env.production
 /.pnp
 .pnp.js
 
