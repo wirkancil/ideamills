@@ -72,7 +72,7 @@ export async function POST(request: NextRequest) {
 
     if (generationId !== undefined) {
       const creditCost = GOOGLE_FLOW_CREDIT_COSTS[model] ?? GOOGLE_FLOW_CREDIT_COSTS['imagen-4'];
-      logAssetUsage({
+      await logAssetUsage({
         generationId,
         clipIndex: clipIndex ?? -1,
         service: 'imagen',

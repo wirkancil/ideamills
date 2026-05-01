@@ -239,7 +239,7 @@ async function generateClipAssets(
 
   const videoUrl = await waitForVideo(veoJobId);
   const creditCost = GOOGLE_FLOW_CREDIT_COSTS[veoModel] ?? GOOGLE_FLOW_CREDIT_COSTS['veo-3.1-fast'];
-  logAssetUsage({
+  await logAssetUsage({
     generationId,
     clipIndex: clip.index,
     service: 'veo',

@@ -30,6 +30,9 @@ async function jsonRequest<T>(method: 'GET' | 'POST', path: string, body?: unkno
   });
   if (!res.ok) {
     const text = await res.text();
+    if (text.includes('PROMINENT_PEOPLE')) {
+      throw new Error('Prompt atau foto ditolak oleh Google karena mengandung deskripsi atau wajah yang teridentifikasi. Coba sederhanakan deskripsi model, atau ganti foto dengan yang lain.');
+    }
     throw new Error(`useapi.net ${res.status} ${path}: ${text.slice(0, 300)}`);
   }
   return res.json() as Promise<T>;
@@ -67,6 +70,9 @@ export async function uploadImageAsset(imageBase64: string, email?: string): Pro
   );
   if (!res.ok) {
     const text = await res.text();
+    if (text.includes('PROMINENT_PEOPLE')) {
+      throw new Error('Foto model ditolak oleh Google karena mengandung wajah yang teridentifikasi. Coba gunakan foto dengan wajah yang tidak terlalu jelas, atau ganti dengan foto lain.');
+    }
     throw new Error(`useapi.net ${res.status} upload: ${text.slice(0, 300)}`);
   }
 

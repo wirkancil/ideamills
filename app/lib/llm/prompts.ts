@@ -204,7 +204,10 @@ Tugas:
    a. Model berbicara langsung ke kamera — sertakan SATU dialog Bahasa Indonesia, ditulis inline sebagai: model berbicara: "[dialog]"
       ATURAN KETAT DIALOG (untuk video 8 detik):
       - HANYA SATU dialog dalam seluruh prompt. JANGAN tulis "model berbicara: ..." dua kali atau lebih.
-      - Dialog MAKSIMAL 15 kata. Hitung kata sebelum tulis. Lebih dari 15 kata akan terpotong di video.
+      - Dialog MAKSIMAL 15 kata total, boleh 1-3 kalimat pendek. HITUNG KATA SEBELUM TULIS — ini wajib. Lebih dari 15 kata = video terpotong dan lipsync rusak.
+      - ✗ CONTOH TERLALU PANJANG (27 kata): "Setelah pakai batik ini, percaya diri itu langsung naik. Ini bukan cuma tentang baju, tapi tentang bagaimana kita merasa." — terlalu panjang.
+      - ✓ VERSI BENAR 1 kalimat (8 kata): "Setelah pakai batik ini, percaya diri langsung naik."
+      - ✓ VERSI BENAR 3 kalimat (14 kata): "Batiknya nyaman. Tampilannya rapi. Cocok buat hari-hari penting."
       - 1-2 kalimat pendek saja, hindari kalimat majemuk panjang dengan banyak klausa.
       - Pilih hook punchy yang relevan dengan ide. Contoh OK (15 kata atau kurang):
         ✓ "Aku akhirnya nemu serum yang bikin kulitku auto glowing dari pemakaian pertama!" (12 kata)
@@ -218,11 +221,14 @@ Tugas:
    e. Clean frame
 
    ATURAN AKSI (untuk muat dan natural di 8 detik):
-   - MAKSIMAL 2 MAJOR ACTION (perubahan posisi/situasi besar). Lebih dari 2 = yang terakhir TIDAK akan dirender.
+   - MAKSIMAL 2 MAJOR ACTION (perubahan posisi/situasi besar). Lebih dari 2 = glitch, artifact, atau aksi terakhir TIDAK dirender sama sekali.
    - MICRO-EXPRESSION DIIZINKAN dan dianjurkan untuk feel natural: glance, smile, blink, laugh, lip movement, head tilt, eye contact, slight nod, eyebrow raise. Veo handle ini dengan baik dalam 8 detik.
-   - Contoh OK (1-2 major action + banyak micro-expression):
+   - JANGAN gabungkan: pegang objek + lirik jendela + menoleh + senyum + mata berbinar + berbicara dalam 1 prompt — ini terlalu banyak dan PASTI glitch.
+   - Contoh OK (1 major action + micro-expression + dialog pendek):
+     ✓ "Model pria duduk di kursi ruang kerjanya, menoleh ke kamera dengan senyum hangat. Model berbicara langsung ke kamera, bibir bergerak sinkron dengan ucapan: 'Setelah pakai batik ini, percaya diri langsung naik.' Kamera statis, single take, clean frame."
      ✓ "model holds product near face (action 1), smiles warmly with playful glance, speaks to camera with natural micro-expressions, lifts product slightly toward camera at end (action 2)"
-   - Contoh TIDAK OK (3+ major action — Veo skip yang akhir):
+   - Contoh TIDAK OK (3+ major action — hasil PASTI glitch):
+     ✗ "model duduk sambil pegang cangkir, ekspresi berpikir keras, melirik ke luar jendela, menoleh kembali ke kamera, senyum, mata berbinar, lalu berbicara" (7 aksi = glitch parah)
      ✗ "model duduk di sofa, lalu berdiri, lalu walk to mirror, lalu bend over to grab bottle, lalu speak"
      ✗ "model holds product, then puts it down, then picks up another product, then speaks, then lifts again"
 
