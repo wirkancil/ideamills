@@ -236,7 +236,7 @@ Tugas:
 
    ${NO_TEXT_OVERLAY_RULE}
 
-   - Duplikasi info yang sudah ada di productNotes/styleNotes (sistem akan prepend keduanya otomatis sebelum kirim ke Veo).
+   - JANGAN duplikasi info yang sudah ada di productNotes/styleNotes — sistem akan prepend keduanya otomatis sebelum kirim ke Veo. Clip prompt HANYA berisi aksi, dialog, dan camera direction. JANGAN ulangi deskripsi model, setting, atau lighting di sini.
 
    Contoh convert negation ke positive (wajib ikuti — untuk deskripsi visual, BUKAN dialog):
 ${VEO_NEGATION_FLIP_EXAMPLES}
