@@ -180,6 +180,10 @@ Tugas:
    - Descriptor netral untuk avoid Imagen mis-interpretasi sebagai targeting public figure spesifik:
      - Pakai: "everyday person", "casual home video style", "authentic candid feel"
      - Hindari: "TikTok creator", "Gen Z creator", "viral creator", "influencer" (kata-kata ini trigger Imagen filter PROMINENT_PEOPLE)
+   - DESKRIPSI FISIK WAJAH — jika ada foto model, JANGAN sebutkan ciri fisik spesifik wajah:
+     - Hindari: warna/gaya rambut, warna/tekstur kulit, bentuk wajah, fitur wajah spesifik (contoh: "berambut pendek hitam", "kulit sawo matang", "berwajah oval")
+     - Boleh: deskripsi demografis generik ("Indonesian woman, aged 25-35"), pakaian, aksesori benda (kacamata, jam tangan, hijab), pose, dan suasana
+     - Alasan: deskripsi fisik wajah spesifik trigger Google PROMINENT_PEOPLE filter dan menyebabkan upload error 400
    - Tone OK: "warm conversational", "genuine review", "homely casual"
    - JANGAN minta caption/subtitle/text overlay/title-card di styleNotes — frame harus clean tanpa text rendered di atasnya (lihat ATURAN NO TEXT OVERLAY di section clip prompt).
 
