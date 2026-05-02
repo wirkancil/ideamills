@@ -9,6 +9,10 @@ import {
   EXPAND_USER,
   ENHANCE_PROMPT_SYSTEM,
   ENHANCE_PROMPT_USER,
+  SUGGEST_EXTEND_SYSTEM,
+  SUGGEST_EXTEND_USER,
+  CLEAN_VEO_SYSTEM,
+  CLEAN_VEO_USER,
 } from './prompts';
 import type { Idea } from '../types';
 import {
@@ -229,4 +233,48 @@ export async function enhanceVeoPrompt(
     throw new LLMError('Empty enhanced prompt', 'INVALID_RESPONSE', 'openrouter', expand);
   }
   return enhanced;
+}
+
+export async function suggestExtendPrompt(
+  sourcePrompt: string,
+  brief: string,
+  _config?: Partial<ModelConfig>,
+  ctx?: { jobId?: string; generationId?: string }
+): Promise<string> {
+  const result = await chat<string>(
+    ctx,
+    'expand',
+    'google/gemini-2.5-flash',
+    [
+      { role: 'system', content: SUGGEST_EXTEND_SYSTEM },
+      { role: 'user', content: SUGGEST_EXTEND_USER(sourcePrompt, brief) },
+    ],
+    { maxTokens: 2000, timeoutMs: 30_000 }
+  );
+  const prompt = (result as string).trim();
+  if (!prompt) {
+    throw new LLMError('Empty extend prompt suggestion', 'INVALID_RESPONSE', 'openrouter', 'google/gemini-2.5-flash');
+  }
+  return prompt;
+}
+
+export async function cleanVeoPrompt(
+  rawPrompt: string,
+  ctx?: { jobId?: string; generationId?: string }
+): Promise<string> {
+  const result = await chat<string>(
+    ctx,
+    'expand',
+    'google/gemini-2.5-flash',
+    [
+      { role: 'system', content: CLEAN_VEO_SYSTEM },
+      { role: 'user', content: CLEAN_VEO_USER(rawPrompt) },
+    ],
+    { maxTokens: 1500, timeoutMs: 30_000 }
+  );
+  const cleaned = (result as string).trim();
+  if (!cleaned) {
+    throw new LLMError('Empty cleaned prompt', 'INVALID_RESPONSE', 'openrouter', 'google/gemini-2.5-flash');
+  }
+  return cleaned;
 }
