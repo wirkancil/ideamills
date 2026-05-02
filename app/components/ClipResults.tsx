@@ -3,7 +3,8 @@
 import { useState } from 'react';
 import { Button } from './ui/button';
 import { Card, CardContent } from './ui/card';
-import { Loader2, RefreshCw, Download, AlertCircle, ChevronDown, ChevronUp, Copy, Check } from 'lucide-react';
+import { Loader2, RefreshCw, Download, AlertCircle, ChevronDown, ChevronUp, Copy, Check, ArrowRight, Sparkles } from 'lucide-react';
+import { Textarea } from './ui/textarea';
 import type { Clip } from '@/app/lib/types';
 
 interface ClipResultsProps {
@@ -12,12 +13,64 @@ interface ClipResultsProps {
   productNotes?: string;
   styleNotes?: string;
   onClipUpdated?: () => void;
+  concatMode?: boolean;
+  selectedForConcat?: number[];
+  onToggleConcatSelect?: (idx: number) => void;
 }
 
-export function ClipResults({ generationId, clips, productNotes = '', styleNotes = '', onClipUpdated }: ClipResultsProps) {
+export function ClipResults({ generationId, clips, productNotes = '', styleNotes = '', onClipUpdated, concatMode, selectedForConcat, onToggleConcatSelect }: ClipResultsProps) {
   const [regeneratingIndex, setRegeneratingIndex] = useState<number | null>(null);
   const [expandedClip, setExpandedClip] = useState<number | null>(null);
   const [copiedField, setCopiedField] = useState<string | null>(null);
+  const [extendingClip, setExtendingClip] = useState<Clip | null>(null);
+  const [extendPrompt, setExtendPrompt] = useState('');
+  const [suggestingPrompt, setSuggestingPrompt] = useState(false);
+  const [submittingExtend, setSubmittingExtend] = useState(false);
+
+  const handleSuggestPrompt = async (clip: Clip) => {
+    setSuggestingPrompt(true);
+    try {
+      const res = await fetch('/api/studio/suggest-extend-prompt', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ generationId, sourceClipIndex: clip.index }),
+      });
+      if (!res.ok) throw new Error('Gagal generate prompt');
+      const data = await res.json();
+      setExtendPrompt(data.prompt);
+    } catch (err) {
+      alert(err instanceof Error ? err.message : 'Gagal generate prompt');
+    } finally {
+      setSuggestingPrompt(false);
+    }
+  };
+
+  const handleExtend = async () => {
+    if (!extendingClip || !extendPrompt.trim()) return;
+    setSubmittingExtend(true);
+    try {
+      const res = await fetch('/api/studio/extend-clip', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          generationId,
+          sourceClipIndex: extendingClip.index,
+          prompt: extendPrompt.trim(),
+        }),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.error ?? 'Gagal extend');
+      }
+      setExtendingClip(null);
+      setExtendPrompt('');
+      onClipUpdated?.();
+    } catch (err) {
+      alert(err instanceof Error ? err.message : 'Gagal extend video');
+    } finally {
+      setSubmittingExtend(false);
+    }
+  };
 
   const copyToClipboard = (text: string, fieldId: string) => {
     navigator.clipboard.writeText(text).then(() => {
@@ -57,9 +110,26 @@ export function ClipResults({ generationId, clips, productNotes = '', styleNotes
     <div className="space-y-4">
       {clips.map((clip, idx) => (
         <Card key={clip.index}>
-          <CardContent className="p-4 space-y-3">
+          <CardContent className="p-4 space-y-3 relative">
+            {concatMode && clip.video_status === 'done' && (
+              <input
+                type="checkbox"
+                className="w-4 h-4 absolute top-3 left-3 cursor-pointer"
+                checked={selectedForConcat?.includes(clip.index) ?? false}
+                onChange={() => onToggleConcatSelect?.(clip.index)}
+              />
+            )}
             <div className="flex items-center justify-between">
-              <div className="font-semibold text-sm">Clip {idx + 1} (8 detik)</div>
+              <div className="flex items-center gap-2">
+                <div className="font-semibold text-sm">
+                  {clip.is_extended
+                    ? `Extended (dari Clip ${(clip.extended_from_index ?? 0) + 1})`
+                    : `Clip ${idx + 1}`}
+                </div>
+                {clip.is_extended && (
+                  <span className="text-xs px-2 py-0.5 rounded-full bg-purple-500/10 text-purple-700">Extended</span>
+                )}
+              </div>
               <ClipStatusBadge status={clip.video_status} />
             </div>
 
@@ -105,16 +175,25 @@ export function ClipResults({ generationId, clips, productNotes = '', styleNotes
                   />
                 )}
                 <PromptBlock
-                  label="Clip Prompt"
+                  label="Clip Prompt (original)"
                   value={clip.prompt}
                   fieldId={`prompt-${clip.index}`}
                   copiedField={copiedField}
                   onCopy={copyToClipboard}
                 />
+                {clip.veo_prompt && (
+                  <PromptBlock
+                    label="Veo Prompt (dikirim ke Veo)"
+                    value={clip.veo_prompt}
+                    fieldId={`veo-${clip.index}`}
+                    copiedField={copiedField}
+                    onCopy={copyToClipboard}
+                  />
+                )}
                 {(productNotes || styleNotes) && (
                   <PromptBlock
-                    label="Full Prompt (gabungan, dikirim ke Veo)"
-                    value={[productNotes, styleNotes, clip.prompt].filter(Boolean).join('\n\n')}
+                    label="Full Prompt (preview gabungan — hanya Clip Prompt yang dikirim ke Veo)"
+                    value={[productNotes, styleNotes, clip.veo_prompt ?? clip.prompt].filter(Boolean).join('\n\n')}
                     fieldId={`full-${clip.index}`}
                     copiedField={copiedField}
                     onCopy={copyToClipboard}
@@ -123,12 +202,22 @@ export function ClipResults({ generationId, clips, productNotes = '', styleNotes
               </div>
             )}
 
-            <div className="flex gap-2">
+            <div className="flex gap-2 flex-wrap">
               {clip.generated_video_path && (
                 <Button asChild size="sm" variant="outline">
                   <a href={clip.generated_video_path} download>
                     <Download className="w-3.5 h-3.5 mr-1.5" /> Download
                   </a>
+                </Button>
+              )}
+              {clip.video_status === 'done' && (
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => { setExtendingClip(clip); setExtendPrompt(''); }}
+                >
+                  <ArrowRight className="w-3.5 h-3.5 mr-1.5" />
+                  Extend
                 </Button>
               )}
               <Button
@@ -159,6 +248,58 @@ export function ClipResults({ generationId, clips, productNotes = '', styleNotes
           </CardContent>
         </Card>
       ))}
+      {extendingClip && (
+        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+          <div className="bg-background rounded-lg shadow-xl w-full max-w-lg space-y-4 p-6">
+            <h3 className="font-semibold text-base">
+              Extend Clip {extendingClip.index + 1}
+            </h3>
+            <p className="text-sm text-muted-foreground">
+              Deskripsikan apa yang terjadi selanjutnya setelah clip ini.
+            </p>
+            <Textarea
+              value={extendPrompt}
+              onChange={(e) => setExtendPrompt(e.target.value)}
+              placeholder="Contoh: Camera slowly zooms out revealing the full product on a marble table..."
+              className="min-h-[100px] text-sm"
+            />
+            <div className="flex gap-2 justify-between">
+              <Button
+                size="sm"
+                variant="outline"
+                disabled={suggestingPrompt}
+                onClick={() => handleSuggestPrompt(extendingClip)}
+              >
+                {suggestingPrompt ? (
+                  <><Loader2 className="w-3.5 h-3.5 mr-1.5 animate-spin" /> Generating...</>
+                ) : (
+                  <><Sparkles className="w-3.5 h-3.5 mr-1.5" /> Generate Prompt</>
+                )}
+              </Button>
+              <div className="flex gap-2">
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  onClick={() => { setExtendingClip(null); setExtendPrompt(''); }}
+                >
+                  Batal
+                </Button>
+                <Button
+                  size="sm"
+                  disabled={!extendPrompt.trim() || submittingExtend}
+                  onClick={handleExtend}
+                >
+                  {submittingExtend ? (
+                    <><Loader2 className="w-3.5 h-3.5 mr-1.5 animate-spin" /> Extending...</>
+                  ) : (
+                    'Extend Video'
+                  )}
+                </Button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
