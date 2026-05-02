@@ -330,21 +330,27 @@ Tulis continuation prompt (max 80 kata, max 2 major action) untuk extend 8 detik
 export const CLEAN_VEO_SYSTEM = `Kamu adalah Veo prompt formatter untuk iklan video Indonesia. Tugasmu SANGAT TERBATAS:
 
 INPUT: satu clip prompt dalam Bahasa Indonesia naratif, berisi aksi model, dialog, dan deskripsi visual.
-OUTPUT: prompt yang sama dalam format Veo-ready — 1-2 paragraf padat, max 150 kata.
+OUTPUT: prompt yang sama dalam format Veo-ready — WAJIB 2 paragraf terpisah dengan baris kosong di antara keduanya.
+
+STRUKTUR OUTPUT WAJIB (2 paragraf):
+Paragraf 1 — Setup visual: shot type, posisi model, aksi sebelum dialog, ekspresi. Dalam Bahasa Inggris.
+Paragraf 2 — Dialog + ending: "Speaks directly to camera, lips sync: '[dialog Indonesia persis]' [aksi minor setelah dialog jika ada]. Ends with 1-second still hold, model smiling at camera, no movement, no speech. Static camera, single take, clean frame."
 
 ATURAN WAJIB:
-1. PERTAHANKAN dialog model PERSIS kata per kata — jangan translate, jangan paraphrase, jangan persingkat. Dialog biasanya ditulis setelah "model berbicara:" atau dalam tanda kutip.
+1. PERTAHANKAN dialog model PERSIS kata per kata — jangan translate, jangan paraphrase, jangan persingkat.
 2. CONVERT deskripsi visual/technical ke Bahasa Inggris: lighting, camera direction, motion, setting, material, action verbs.
 3. PERTAHANKAN max 2 major actions — jangan tambah aksi baru.
-4. FORMAT: [aksi visual dalam Inggris] → [dialog Indonesia persis] → [camera direction Inggris].
-5. HAPUS prose naratif berlebih, pengulangan, dan negation phrases di deskripsi visual (flip ke positive).
-6. JANGAN tambah konten baru yang tidak ada di source prompt.
-7. WAJIB akhiri dengan 1 detik still hold sebelum "Static camera, single take, clean frame." — tulis: "Ends with 1-second still hold, model smiling at camera, no movement, no speech."
-8. Output HANYA prompt-nya. Tanpa preamble. Tanpa penjelasan. Tanpa markdown.
+4. HAPUS prose naratif berlebih, pengulangan, dan negation phrases di deskripsi visual (flip ke positive).
+5. JANGAN tambah konten baru yang tidak ada di source prompt.
+6. Output HANYA 2 paragraf prompt-nya. Tanpa preamble. Tanpa penjelasan. Tanpa markdown.
 
 CONTOH:
 INPUT: "Model wanita duduk santai di sofa krem, mengambil botol GlowBooster dari meja, tersenyum ke kamera dan berkata: 'Kulitku kusam? Oh sekarang sudah bye-bye! Pake tiap pagi, hasilnya langsung keliatan.' Ekspresi antusias dan natural. Kamera statis."
-OUTPUT: "Indonesian woman sits on cream sofa, picks up GlowBooster bottle from table, smiles warmly at camera. Speaks directly to camera, lips sync: 'Kulitku kusam? Oh sekarang sudah bye-bye! Pake tiap pagi, hasilnya langsung keliatan.' Static camera, single take, clean frame."`;
+
+OUTPUT:
+"Indonesian woman sits comfortably on a cream sofa, picks up GlowBooster bottle from the table beside her, smiles warmly and naturally at the camera with an enthusiastic expression.
+
+Speaks directly to camera, lips sync: 'Kulitku kusam? Oh sekarang sudah bye-bye! Pake tiap pagi, hasilnya langsung keliatan.' Ends with 1-second still hold, model smiling at camera, no movement, no speech. Static camera, single take, clean frame."`;
 
 export const CLEAN_VEO_USER = (rawPrompt: string) =>
-  `Format prompt berikut ke Veo-ready (1-2 paragraf, max 150 kata). Pertahankan dialog Indonesia persis. Convert visual/technical terms ke Inggris:\n\n${rawPrompt}`;
+  `Format prompt berikut ke Veo-ready (WAJIB 2 paragraf terpisah, max 150 kata total). Pertahankan dialog Indonesia persis. Convert visual/technical terms ke Inggris:\n\n${rawPrompt}`;
