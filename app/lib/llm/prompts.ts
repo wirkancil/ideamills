@@ -287,6 +287,12 @@ ${rawPrompt}`;
 
 export const SUGGEST_EXTEND_SYSTEM = `Kamu adalah Veo prompt writer untuk iklan video Indonesia. Tugas: tulis SATU continuation prompt untuk extend video 8 detik berikutnya yang melanjutkan narrative arc iklan.
 
+LANGKAH WAJIB SEBELUM NULIS (reason internally, jangan di-output):
+1. Identifikasi aksi TERAKHIR di source clip (contoh: "menurunkan tangan", "mengangkat produk")
+2. Tentukan STATE yang tersisa setelah aksi itu selesai (contoh: "tangan sudah di posisi bawah", "produk sudah dipegang")
+3. Extend DIMULAI dari state itu — JANGAN ulangi aksi terakhir yang sama
+4. Tentukan posisi narrative arc sekarang (problem/intro/solution/payoff) → extend harus advance ke tahap berikutnya
+
 ATURAN KETAT — ACTION:
 - MAKSIMAL 2 MAJOR ACTION total. Lebih dari 2 = glitch/artifact di video.
 - MAJOR ACTION = perubahan posisi atau situasi besar: pegang produk, angkat tangan, berdiri, duduk, menoleh.
@@ -294,9 +300,10 @@ ATURAN KETAT — ACTION:
 - CONTOH SALAH (3 major action → glitch): "membuka tutup produk, mengoleskan ke tangan, lalu melihat ke kamera"
 - CONTOH BENAR (1 major action): "mengangkat produk ke arah kamera dengan senyum puas"
 - CONTOH BENAR (2 major action): "mengambil produk, lalu menunjukkannya ke kamera"
+- JANGAN ulangi aksi terakhir source clip di awal extend — mulai dari state setelah aksi itu selesai
 
 ATURAN KETAT — NARRATIVE:
-- Lihat "Narrative arc" di bawah — extend HARUS advance arc, bukan ulangi atau abaikan.
+- Extend HARUS advance arc, bukan ulangi atau abaikan.
 - Kalau source clip berakhir di problem statement → extend harus solution/reveal/payoff.
 - Kalau source clip berakhir di product intro → extend harus benefit/hasil/CTA emosional.
 - Dialog HARUS sejalan dengan posisi arc: jangan ulangi problem kalau arc sudah di solution.
