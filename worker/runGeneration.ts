@@ -1,9 +1,10 @@
 import { ObjectId } from 'mongodb';
 import { getDb } from '../app/lib/mongoClient';
-import { uploadImageAsset, createVideoJob, waitForVideo } from '../app/lib/useapi';
+import { uploadImageAsset, createVideoJob, waitForVideo, pollVideoJob } from '../app/lib/useapi';
 import { saveImage, downloadAndSaveVideo, storagePathToUrl } from '../app/lib/storage';
 import { logAssetUsage } from '../app/lib/monitoring/assetUsage';
 import { GOOGLE_FLOW_CREDIT_COSTS, GOOGLE_FLOW_CREDIT_PRICE_USD } from '../app/lib/monitoring/creditCosts';
+import { cleanVeoPrompt } from '../app/lib/llm';
 import type { Clip, ClipImageMode } from '../app/lib/types';
 
 // ============================================================
@@ -163,6 +164,48 @@ async function generateClipAssets(
   const oid = new ObjectId(generationId);
   const arrayFilters = [{ 'c.index': clip.index }];
 
+  // Extended clips skip image generation — just poll the existing video job
+  if (clip.is_extended && clip.video_job_id) {
+    await db.collection('Generations').updateOne(
+      { _id: oid },
+      {
+        $set: {
+          'clips.$[c].video_status': 'generating',
+          'clips.$[c].updated_at': new Date(),
+          status: 'processing',
+          progress: 50,
+          progress_label: `Extending clip ${clip.index + 1}...`,
+          updated_at: new Date(),
+        },
+      },
+      { arrayFilters }
+    );
+    const videoUrl = await waitForVideo(clip.video_job_id);
+    const finalJob = await pollVideoJob(clip.video_job_id);
+    const extendedMediaId = finalJob.mediaGenerationId ?? null;
+
+    const videoFilePath = await downloadAndSaveVideo(videoUrl, generationId, `clip-${clip.index}.mp4`);
+    const videoPublicUrl = storagePathToUrl(videoFilePath);
+
+    await db.collection('Generations').updateOne(
+      { _id: oid },
+      {
+        $set: {
+          'clips.$[c].video_status': 'done',
+          'clips.$[c].generated_video_path': videoPublicUrl,
+          ...(extendedMediaId ? { 'clips.$[c].media_generation_id': extendedMediaId } : {}),
+          'clips.$[c].updated_at': new Date(),
+          status: 'completed',
+          progress: 100,
+          progress_label: `Clip ${clip.index + 1} extended`,
+          updated_at: new Date(),
+        },
+      },
+      { arrayFilters }
+    );
+    return;
+  }
+
   // Step 1: Resolve image source
   await db.collection('Generations').updateOne(
     { _id: oid },
@@ -216,12 +259,22 @@ async function generateClipAssets(
     { arrayFilters }
   );
 
-  // Veo prompt = clip.prompt saja. productNotes + styleNotes sudah ter-encode di image (yang
-  // jadi startImage), kirim ulang ke Veo bikin prompt terlalu panjang dan sering fail.
-  const finalPrompt = clip.prompt;
+  // Clean prompt: convert Indonesia naratif → Veo-ready English + dialog Indo intact.
+  // Fallback ke clip.prompt jika cleaning gagal agar generation tidak terhenti.
+  let veoPrompt = clip.prompt;
+  try {
+    veoPrompt = await cleanVeoPrompt(clip.prompt, { generationId });
+    await db.collection('Generations').updateOne(
+      { _id: oid },
+      { $set: { 'clips.$[c].veo_prompt': veoPrompt, 'clips.$[c].updated_at': new Date() } },
+      { arrayFilters }
+    );
+  } catch (err) {
+    console.warn(`[worker] cleanVeoPrompt failed for clip ${clip.index}, using raw prompt:`, err);
+  }
   const veoJobId = await createVideoJob({
     imageUrl: mediaGenerationId,
-    prompt: finalPrompt,
+    prompt: veoPrompt,
     model: veoModel,
     aspectRatio,
   });
@@ -238,6 +291,10 @@ async function generateClipAssets(
   );
 
   const videoUrl = await waitForVideo(veoJobId);
+  // Poll once more to get mediaGenerationId of the completed video (needed for extend)
+  const finalJob = await pollVideoJob(veoJobId);
+  const videoMediaGenerationId = finalJob.mediaGenerationId ?? null;
+
   const creditCost = GOOGLE_FLOW_CREDIT_COSTS[veoModel] ?? GOOGLE_FLOW_CREDIT_COSTS['veo-3.1-fast'];
   await logAssetUsage({
     generationId,
@@ -257,6 +314,7 @@ async function generateClipAssets(
       $set: {
         'clips.$[c].video_status': 'done',
         'clips.$[c].generated_video_path': videoPublicUrl,
+        ...(videoMediaGenerationId ? { 'clips.$[c].media_generation_id': videoMediaGenerationId } : {}),
         'clips.$[c].updated_at': new Date(),
       },
     },
