@@ -339,7 +339,8 @@ ATURAN WAJIB:
 4. FORMAT: [aksi visual dalam Inggris] → [dialog Indonesia persis] → [camera direction Inggris].
 5. HAPUS prose naratif berlebih, pengulangan, dan negation phrases di deskripsi visual (flip ke positive).
 6. JANGAN tambah konten baru yang tidak ada di source prompt.
-7. Output HANYA prompt-nya. Tanpa preamble. Tanpa penjelasan. Tanpa markdown.
+7. WAJIB akhiri dengan 1 detik still hold sebelum "Static camera, single take, clean frame." — tulis: "Ends with 1-second still hold, model smiling at camera, no movement, no speech."
+8. Output HANYA prompt-nya. Tanpa preamble. Tanpa penjelasan. Tanpa markdown.
 
 CONTOH:
 INPUT: "Model wanita duduk santai di sofa krem, mengambil botol GlowBooster dari meja, tersenyum ke kamera dan berkata: 'Kulitku kusam? Oh sekarang sudah bye-bye! Pake tiap pagi, hasilnya langsung keliatan.' Ekspresi antusias dan natural. Kamera statis."
