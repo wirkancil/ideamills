@@ -1,0 +1,54 @@
+import { NextRequest, NextResponse } from 'next/server';
+import { ObjectId } from 'mongodb';
+import { z } from 'zod';
+import { getDb } from '@/app/lib/mongoClient';
+import { cleanVeoPrompt } from '@/app/lib/llm';
+import type { Clip } from '@/app/lib/types';
+
+const RequestSchema = z.object({
+  generationId: z.string().min(1),
+  clipIndex: z.number().int().min(0),
+});
+
+export async function POST(request: NextRequest) {
+  try {
+    const body = await request.json();
+    const parsed = RequestSchema.safeParse(body);
+    if (!parsed.success) {
+      return NextResponse.json({ error: 'Invalid request', details: parsed.error.format() }, { status: 400 });
+    }
+
+    const { generationId, clipIndex } = parsed.data;
+
+    let oid: ObjectId;
+    try {
+      oid = new ObjectId(generationId);
+    } catch {
+      return NextResponse.json({ error: 'Invalid generationId' }, { status: 400 });
+    }
+
+    const db = await getDb();
+    const generation = await db.collection('Generations').findOne({ _id: oid });
+    if (!generation) {
+      return NextResponse.json({ error: 'Generation not found' }, { status: 404 });
+    }
+
+    const clips = (generation.clips ?? []) as Clip[];
+    const clip = clips.find((c) => c.index === clipIndex);
+    if (!clip) {
+      return NextResponse.json({ error: 'Clip not found' }, { status: 404 });
+    }
+
+    const veoPrompt = await cleanVeoPrompt(clip.prompt, { generationId });
+
+    await db.collection('Generations').updateOne(
+      { _id: oid, 'clips.index': clipIndex },
+      { $set: { 'clips.$.veo_prompt': veoPrompt, 'clips.$.updated_at': new Date() } }
+    );
+
+    return NextResponse.json({ veoPrompt });
+  } catch (error) {
+    console.error('/api/studio/regenerate-veo-prompt error:', error);
+    return NextResponse.json({ error: error instanceof Error ? error.message : 'Internal server error' }, { status: 500 });
+  }
+}

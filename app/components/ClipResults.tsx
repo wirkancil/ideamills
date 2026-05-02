@@ -27,6 +27,10 @@ export function ClipResults({ generationId, clips, productNotes = '', styleNotes
   const [extendPrompt, setExtendPrompt] = useState('');
   const [suggestingPrompt, setSuggestingPrompt] = useState(false);
   const [submittingExtend, setSubmittingExtend] = useState(false);
+  const [editingVeoPrompt, setEditingVeoPrompt] = useState<number | null>(null);
+  const [veoPromptDraft, setVeoPromptDraft] = useState('');
+  const [savingVeoPrompt, setSavingVeoPrompt] = useState(false);
+  const [regeneratingVeoPrompt, setRegeneratingVeoPrompt] = useState<number | null>(null);
 
   const handleSuggestPrompt = async (clip: Clip) => {
     setSuggestingPrompt(true);
@@ -78,6 +82,52 @@ export function ClipResults({ generationId, clips, productNotes = '', styleNotes
       setCopiedField(fieldId);
       setTimeout(() => setCopiedField(null), 1500);
     });
+  };
+
+  const handleSaveVeoPrompt = async (clip: Clip) => {
+    setSavingVeoPrompt(true);
+    try {
+      const res = await fetch('/api/studio/update-veo-prompt', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ generationId, clipIndex: clip.index, veoPrompt: veoPromptDraft.trim() }),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        alert(`Gagal simpan: ${err.error ?? res.statusText}`);
+      } else {
+        setEditingVeoPrompt(null);
+        onClipUpdated?.();
+      }
+    } catch (err) {
+      alert(`Gagal simpan: ${err instanceof Error ? err.message : 'unknown'}`);
+    } finally {
+      setSavingVeoPrompt(false);
+    }
+  };
+
+  const handleRegenerateVeoPrompt = async (clip: Clip) => {
+    setRegeneratingVeoPrompt(clip.index);
+    try {
+      const res = await fetch('/api/studio/regenerate-veo-prompt', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ generationId, clipIndex: clip.index }),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        alert(`Gagal regenerate: ${err.error ?? res.statusText}`);
+      } else {
+        const data = await res.json();
+        setVeoPromptDraft(data.veoPrompt);
+        setEditingVeoPrompt(clip.index);
+        onClipUpdated?.();
+      }
+    } catch (err) {
+      alert(`Gagal regenerate: ${err instanceof Error ? err.message : 'unknown'}`);
+    } finally {
+      setRegeneratingVeoPrompt(null);
+    }
   };
 
   const handleRegenerate = async (clip: Clip) => {
@@ -189,13 +239,56 @@ export function ClipResults({ generationId, clips, productNotes = '', styleNotes
                 )}
                 {/* Untuk Veo — accordion */}
                 <PromptAccordion label="Untuk Veo (generate video)" defaultOpen>
-                  <PromptBlock
-                    label="Veo Prompt (dikirim ke Veo)"
-                    value={[styleNotes, clip.veo_prompt ?? clip.prompt].filter(Boolean).join('\n\n')}
-                    fieldId={`veo-${clip.index}`}
-                    copiedField={copiedField}
-                    onCopy={copyToClipboard}
-                  />
+                  <div className="space-y-2">
+                    <div className="flex items-center justify-between">
+                      <p className="font-semibold text-foreground">Veo Prompt (dikirim ke Veo)</p>
+                      <div className="flex gap-1.5">
+                        <button
+                          type="button"
+                          disabled={regeneratingVeoPrompt === clip.index}
+                          onClick={() => handleRegenerateVeoPrompt(clip)}
+                          className="text-[10px] flex items-center gap-1 text-muted-foreground hover:text-foreground disabled:opacity-50"
+                        >
+                          {regeneratingVeoPrompt === clip.index
+                            ? <><Loader2 className="w-3 h-3 animate-spin" /> Generating...</>
+                            : <><Sparkles className="w-3 h-3" /> Regenerate AI</>}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setEditingVeoPrompt(editingVeoPrompt === clip.index ? null : clip.index);
+                            setVeoPromptDraft(clip.veo_prompt ?? clip.prompt);
+                          }}
+                          className="text-[10px] flex items-center gap-1 text-muted-foreground hover:text-foreground"
+                        >
+                          {editingVeoPrompt === clip.index ? 'Batal' : <><RefreshCw className="w-3 h-3" /> Edit Manual</>}
+                        </button>
+                      </div>
+                    </div>
+                    {editingVeoPrompt === clip.index ? (
+                      <div className="space-y-2">
+                        <Textarea
+                          value={veoPromptDraft}
+                          onChange={(e) => setVeoPromptDraft(e.target.value)}
+                          className="min-h-[120px] text-[11px] font-mono"
+                        />
+                        <div className="flex justify-end gap-2">
+                          <Button size="sm" variant="ghost" onClick={() => setEditingVeoPrompt(null)}>Batal</Button>
+                          <Button
+                            size="sm"
+                            disabled={savingVeoPrompt || !veoPromptDraft.trim()}
+                            onClick={() => handleSaveVeoPrompt(clip)}
+                          >
+                            {savingVeoPrompt ? <><Loader2 className="w-3.5 h-3.5 mr-1.5 animate-spin" /> Menyimpan...</> : 'Simpan'}
+                          </Button>
+                        </div>
+                      </div>
+                    ) : (
+                      <pre className="bg-muted/50 rounded-md p-2 whitespace-pre-wrap font-mono text-[11px] leading-relaxed border">
+                        {[styleNotes, clip.veo_prompt ?? clip.prompt].filter(Boolean).join('\n\n')}
+                      </pre>
+                    )}
+                  </div>
                 </PromptAccordion>
               </div>
             )}
