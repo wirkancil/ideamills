@@ -48,27 +48,27 @@ export async function POST(request: NextRequest) {
     }
 
     const now = new Date();
-    const updatedClips = clips.map((c) =>
-      c.index === clipIndex
-        ? {
-            ...c,
-            prompt,
-            imageMode,
-            imageDataUrl: imageDataUrl ?? null,
-            generated_image_path: null,
-            generated_video_path: null,
-            image_status: 'pending' as const,
-            video_status: 'pending' as const,
-            image_error: null,
-            video_error: null,
-            media_generation_id: null,
-            video_job_id: null,
-            // Reset veo_prompt agar worker generate ulang dari prompt baru
-            veo_prompt: null,
-            updated_at: now,
-          }
-        : c
-    );
+    const updatedClips = clips.map((c) => {
+      if (c.index !== clipIndex) return c;
+      // Reset veo_prompt hanya jika prompt berubah — jika sama, preserve hasil edit user
+      const promptChanged = c.prompt !== prompt;
+      return {
+        ...c,
+        prompt,
+        imageMode,
+        imageDataUrl: imageDataUrl ?? null,
+        generated_image_path: null,
+        generated_video_path: null,
+        image_status: 'pending' as const,
+        video_status: 'pending' as const,
+        image_error: null,
+        video_error: null,
+        media_generation_id: null,
+        video_job_id: null,
+        veo_prompt: promptChanged ? null : (c.veo_prompt ?? null),
+        updated_at: now,
+      };
+    });
 
     await db.collection('Generations').updateOne(
       { _id: oid },
