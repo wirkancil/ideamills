@@ -1,6 +1,6 @@
 import { ObjectId } from 'mongodb';
 import { getDb } from '../app/lib/mongoClient';
-import { uploadImageAsset, createVideoJob, waitForVideo, pollVideoJob } from '../app/lib/useapi';
+import { uploadImageAsset, createVideoJob, waitForVideo, pollVideoJob, extendVideo } from '../app/lib/useapi';
 import { saveImage, downloadAndSaveVideo, storagePathToUrl } from '../app/lib/storage';
 import { logAssetUsage } from '../app/lib/monitoring/assetUsage';
 import { GOOGLE_FLOW_CREDIT_COSTS, GOOGLE_FLOW_CREDIT_PRICE_USD } from '../app/lib/monitoring/creditCosts';
@@ -21,8 +21,6 @@ interface V2Payload {
   v2Studio: true;
   v2RegenerateClipIndex?: number;
 }
-
-const CLIP_CONCURRENCY = 2;
 
 /**
  * Worker entry point. Only v2 Studio Clean Flow is supported.
@@ -57,6 +55,19 @@ export async function runGeneration(genId: string, payload: unknown) {
   }
 
   throw new Error(`Unsupported job payload — only v2 studio generation is supported.`);
+}
+
+// ============================================================
+// Helper
+// ============================================================
+
+async function getCompletedMediaId(generationId: string, clipIndex: number): Promise<string | null> {
+  const db = await getDb();
+  const oid = new ObjectId(generationId);
+  const gen = await db.collection('Generations').findOne({ _id: oid });
+  const clips = (gen?.clips ?? []) as Clip[];
+  const clip = clips.find((c) => c.index === clipIndex);
+  return clip?.media_generation_id ?? null;
 }
 
 // ============================================================
@@ -108,24 +119,87 @@ async function runV2StudioGeneration(generationId: string, payload: V2Payload) {
     return;
   }
 
-  await processWithConcurrency(clipsToProcess, CLIP_CONCURRENCY, async (clip) => {
-    try {
-      await generateClipAssets(generationId, clip, productImageUrl, styleNotes, veoModel, aspectRatio);
-    } catch (err) {
-      const errMsg = err instanceof Error ? err.message : String(err);
-      await db.collection('Generations').updateOne(
-        { _id: oid },
-        {
-          $set: {
-            'clips.$[c].video_status': 'failed',
-            'clips.$[c].video_error': errMsg,
-            'clips.$[c].updated_at': new Date(),
+  const isSingleRegenerate = typeof payload.v2RegenerateClipIndex === 'number';
+
+  if (isSingleRegenerate) {
+    const clip = clipsToProcess[0];
+    if (clip.index === 0) {
+      // Clip 0 selalu generate normal
+      try {
+        await generateClipAssets(generationId, clip, productImageUrl, styleNotes, veoModel, aspectRatio);
+      } catch (err) {
+        const errMsg = err instanceof Error ? err.message : String(err);
+        await db.collection('Generations').updateOne(
+          { _id: oid },
+          { $set: { 'clips.$[c].video_status': 'failed', 'clips.$[c].video_error': errMsg, 'clips.$[c].updated_at': new Date() } },
+          { arrayFilters: [{ 'c.index': clip.index }] }
+        );
+      }
+    } else {
+      // Extend dari clip sebelumnya
+      const prevMediaId = await getCompletedMediaId(generationId, clip.index - 1);
+      if (!prevMediaId) {
+        await db.collection('Generations').updateOne(
+          { _id: oid },
+          {
+            $set: {
+              'clips.$[c].video_status': 'failed',
+              'clips.$[c].video_error': `Clip ${clip.index - 1} belum selesai atau tidak punya media_generation_id`,
+              'clips.$[c].updated_at': new Date(),
+            },
           },
-        },
-        { arrayFilters: [{ 'c.index': clip.index }] }
-      );
+          { arrayFilters: [{ 'c.index': clip.index }] }
+        );
+      } else {
+        try {
+          await extendClipAssets(generationId, clip, prevMediaId, styleNotes, veoModel);
+        } catch (err) {
+          const errMsg = err instanceof Error ? err.message : String(err);
+          await db.collection('Generations').updateOne(
+            { _id: oid },
+            { $set: { 'clips.$[c].video_status': 'failed', 'clips.$[c].video_error': errMsg, 'clips.$[c].updated_at': new Date() } },
+            { arrayFilters: [{ 'c.index': clip.index }] }
+          );
+        }
+      }
     }
-  });
+  } else {
+    // Full generation: sequential chain — clip 0 generate, clip 1+ extend dari sebelumnya
+    const sorted = [...clipsToProcess].sort((a, b) => a.index - b.index);
+    let prevMediaId: string | null = null;
+
+    for (const clip of sorted) {
+      if (clip.index === 0 || prevMediaId === null) {
+        try {
+          await generateClipAssets(generationId, clip, productImageUrl, styleNotes, veoModel, aspectRatio);
+          prevMediaId = await getCompletedMediaId(generationId, clip.index);
+        } catch (err) {
+          const errMsg = err instanceof Error ? err.message : String(err);
+          await db.collection('Generations').updateOne(
+            { _id: oid },
+            { $set: { 'clips.$[c].video_status': 'failed', 'clips.$[c].video_error': errMsg, 'clips.$[c].updated_at': new Date() } },
+            { arrayFilters: [{ 'c.index': clip.index }] }
+          );
+          console.warn(`[worker] Clip ${clip.index} failed, chain broken. Next clip will attempt generate independently.`);
+          prevMediaId = null;
+        }
+      } else {
+        try {
+          await extendClipAssets(generationId, clip, prevMediaId, styleNotes, veoModel);
+          prevMediaId = await getCompletedMediaId(generationId, clip.index);
+        } catch (err) {
+          const errMsg = err instanceof Error ? err.message : String(err);
+          await db.collection('Generations').updateOne(
+            { _id: oid },
+            { $set: { 'clips.$[c].video_status': 'failed', 'clips.$[c].video_error': errMsg, 'clips.$[c].updated_at': new Date() } },
+            { arrayFilters: [{ 'c.index': clip.index }] }
+          );
+          console.warn(`[worker] Clip ${clip.index} failed, chain broken. Next clip will attempt generate independently.`);
+          prevMediaId = null;
+        }
+      }
+    }
+  }
 
   // Determine final status from current clip state in DB
   const refreshed = await db.collection('Generations').findOne({ _id: oid });
@@ -165,48 +239,6 @@ async function generateClipAssets(
   const db = await getDb();
   const oid = new ObjectId(generationId);
   const arrayFilters = [{ 'c.index': clip.index }];
-
-  // Extended clips skip image generation — just poll the existing video job
-  if (clip.is_extended && clip.video_job_id) {
-    await db.collection('Generations').updateOne(
-      { _id: oid },
-      {
-        $set: {
-          'clips.$[c].video_status': 'generating',
-          'clips.$[c].updated_at': new Date(),
-          status: 'processing',
-          progress: 50,
-          progress_label: `Extending clip ${clip.index + 1}...`,
-          updated_at: new Date(),
-        },
-      },
-      { arrayFilters }
-    );
-    const videoUrl = await waitForVideo(clip.video_job_id);
-    const finalJob = await pollVideoJob(clip.video_job_id);
-    const extendedMediaId = finalJob.mediaGenerationId ?? null;
-
-    const videoFilePath = await downloadAndSaveVideo(videoUrl, generationId, `clip-${clip.index}.mp4`);
-    const videoPublicUrl = storagePathToUrl(videoFilePath);
-
-    await db.collection('Generations').updateOne(
-      { _id: oid },
-      {
-        $set: {
-          'clips.$[c].video_status': 'done',
-          'clips.$[c].generated_video_path': videoPublicUrl,
-          ...(extendedMediaId ? { 'clips.$[c].media_generation_id': extendedMediaId } : {}),
-          'clips.$[c].updated_at': new Date(),
-          status: 'completed',
-          progress: 100,
-          progress_label: `Clip ${clip.index + 1} extended`,
-          updated_at: new Date(),
-        },
-      },
-      { arrayFilters }
-    );
-    return;
-  }
 
   // Step 1: Resolve image source
   await db.collection('Generations').updateOne(
@@ -265,19 +297,25 @@ async function generateClipAssets(
   // Jika belum ada, generate via cleanVeoPrompt. Fallback ke clip.prompt jika gagal.
   let veoPrompt = clip.veo_prompt ?? null;
   if (!veoPrompt) {
-    try {
-      veoPrompt = await cleanVeoPrompt(clip.prompt, { generationId });
-      await db.collection('Generations').updateOne(
-        { _id: oid },
-        { $set: { 'clips.$[c].veo_prompt': veoPrompt, 'clips.$[c].updated_at': new Date() } },
-        { arrayFilters }
-      );
-    } catch (err) {
-      console.warn(`[worker] cleanVeoPrompt failed for clip ${clip.index}, using raw prompt:`, err);
-      veoPrompt = clip.prompt;
+    // Retry sampai 2x sebelum fallback — jangan kirim raw prompt mentah ke Veo
+    for (let attempt = 1; attempt <= 2; attempt++) {
+      try {
+        veoPrompt = await cleanVeoPrompt(clip.prompt, { generationId });
+        await db.collection('Generations').updateOne(
+          { _id: oid },
+          { $set: { 'clips.$[c].veo_prompt': veoPrompt, 'clips.$[c].updated_at': new Date() } },
+          { arrayFilters }
+        );
+        break;
+      } catch (err) {
+        console.warn(`[worker] cleanVeoPrompt attempt ${attempt} failed for clip ${clip.index}:`, err);
+        if (attempt === 2) {
+          // Fallback terakhir — raw prompt lebih baik daripada tidak ada sama sekali
+          veoPrompt = clip.prompt;
+        }
+      }
     }
   }
-  // Final prompt ke Veo = styleNotes (model & setting context) + veo_prompt (aksi & dialog)
   const finalVeoPrompt = [styleNotes, veoPrompt].filter(Boolean).join('\n\n');
   const veoJobId = await createVideoJob({
     imageUrl: mediaGenerationId,
@@ -330,21 +368,102 @@ async function generateClipAssets(
 }
 
 // ============================================================
-// Concurrency Helper
+// Per-Clip Extend (chain dari clip sebelumnya)
 // ============================================================
 
-async function processWithConcurrency<T>(
-  items: T[],
-  limit: number,
-  fn: (item: T) => Promise<void>
-): Promise<void> {
-  let index = 0;
-  async function worker() {
-    while (index < items.length) {
-      const i = index++;
-      await fn(items[i]);
+async function extendClipAssets(
+  generationId: string,
+  clip: Clip,
+  prevMediaGenerationId: string,
+  styleNotes: string,
+  veoModel: string,
+) {
+  const db = await getDb();
+  const oid = new ObjectId(generationId);
+  const arrayFilters = [{ 'c.index': clip.index }];
+
+  await db.collection('Generations').updateOne(
+    { _id: oid },
+    {
+      $set: {
+        'clips.$[c].is_extended': true,
+        'clips.$[c].extended_from_index': clip.index - 1,
+        'clips.$[c].image_status': 'done',
+        'clips.$[c].video_status': 'queued',
+        'clips.$[c].updated_at': new Date(),
+        status: 'processing',
+        updated_at: new Date(),
+      },
+    },
+    { arrayFilters }
+  );
+
+  let veoPrompt = clip.veo_prompt ?? null;
+  if (!veoPrompt) {
+    for (let attempt = 1; attempt <= 2; attempt++) {
+      try {
+        veoPrompt = await cleanVeoPrompt(clip.prompt, { generationId });
+        await db.collection('Generations').updateOne(
+          { _id: oid },
+          { $set: { 'clips.$[c].veo_prompt': veoPrompt, 'clips.$[c].updated_at': new Date() } },
+          { arrayFilters }
+        );
+        break;
+      } catch (err) {
+        console.warn(`[worker] cleanVeoPrompt attempt ${attempt} failed for clip ${clip.index}:`, err);
+        if (attempt === 2) veoPrompt = clip.prompt;
+      }
     }
   }
-  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker));
-}
 
+  const finalPrompt = [styleNotes, veoPrompt].filter(Boolean).join('\n\n');
+
+  await db.collection('Generations').updateOne(
+    { _id: oid },
+    { $set: { 'clips.$[c].video_status': 'generating' } },
+    { arrayFilters }
+  );
+
+  const jobId = await extendVideo({
+    mediaGenerationId: prevMediaGenerationId,
+    prompt: finalPrompt,
+    model: veoModel,
+  });
+
+  await db.collection('Generations').updateOne(
+    { _id: oid },
+    { $set: { 'clips.$[c].video_job_id': jobId, 'clips.$[c].updated_at': new Date() } },
+    { arrayFilters }
+  );
+
+  const videoUrl = await waitForVideo(jobId);
+  const finalJob = await pollVideoJob(jobId);
+  const videoMediaGenerationId = finalJob.mediaGenerationId ?? null;
+
+  const creditCost = GOOGLE_FLOW_CREDIT_COSTS[veoModel] ?? GOOGLE_FLOW_CREDIT_COSTS['veo-3.1-fast'];
+  await logAssetUsage({
+    generationId,
+    clipIndex: clip.index,
+    service: 'veo',
+    model: veoModel,
+    creditCost,
+    costUsd: creditCost * GOOGLE_FLOW_CREDIT_PRICE_USD,
+    createdAt: new Date(),
+  });
+
+  const videoFilePath = await downloadAndSaveVideo(videoUrl, generationId, `clip-${clip.index}.mp4`);
+  const videoPublicUrl = storagePathToUrl(videoFilePath);
+
+  await db.collection('Generations').updateOne(
+    { _id: oid },
+    {
+      $set: {
+        'clips.$[c].video_status': 'done',
+        'clips.$[c].generated_video_path': videoPublicUrl,
+        ...(videoMediaGenerationId ? { 'clips.$[c].media_generation_id': videoMediaGenerationId } : {}),
+        'clips.$[c].updated_at': new Date(),
+      },
+    },
+    { arrayFilters }
+  );
+}
