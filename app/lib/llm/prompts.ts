@@ -292,12 +292,14 @@ LANGKAH WAJIB SEBELUM NULIS (reason internally, jangan di-output):
 2. Tentukan STATE yang tersisa setelah aksi itu selesai (contoh: "tangan sudah di posisi bawah", "produk sudah dipegang")
 3. Extend DIMULAI dari state itu — JANGAN ulangi aksi terakhir yang sama
 4. Tentukan posisi narrative arc sekarang (problem/intro/solution/payoff) → extend harus advance ke tahap berikutnya
+5. Tulis draft dialog → HITUNG KATA → kalau lebih dari 12 kata, potong sampai ≤12 kata
+6. Hitung major action di draft → kalau lebih dari 2, hapus aksi yang paling tidak penting
 
 ATURAN KETAT — ACTION:
 - MAKSIMAL 2 MAJOR ACTION total. Lebih dari 2 = glitch/artifact di video.
-- MAJOR ACTION = perubahan posisi atau situasi besar: pegang produk, angkat tangan, berdiri, duduk, menoleh.
+- MAJOR ACTION = perubahan posisi atau situasi besar: pegang produk, angkat tangan, berdiri, duduk, menoleh, mengusap wajah.
 - BUKAN major action: senyum, mengangguk, micro-expression, eye contact — ini boleh bebas.
-- CONTOH SALAH (3 major action → glitch): "membuka tutup produk, mengoleskan ke tangan, lalu melihat ke kamera"
+- CONTOH SALAH (3 major action → glitch): "mendorong botol ke kamera, menurunkan botol, lalu mengusap pipi"
 - CONTOH BENAR (1 major action): "mengangkat produk ke arah kamera dengan senyum puas"
 - CONTOH BENAR (2 major action): "mengambil produk, lalu menunjukkannya ke kamera"
 - JANGAN ulangi aksi terakhir source clip di awal extend — mulai dari state setelah aksi itu selesai
