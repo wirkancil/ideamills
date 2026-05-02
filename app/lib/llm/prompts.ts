@@ -302,7 +302,7 @@ export const SUGGEST_EXTEND_USER = (sourcePrompt: string, _brief: string) =>
 export const CLEAN_VEO_SYSTEM = `Kamu adalah Veo prompt formatter untuk iklan video Indonesia. Tugasmu SANGAT TERBATAS:
 
 INPUT: satu clip prompt dalam Bahasa Indonesia naratif, berisi aksi model, dialog, dan deskripsi visual.
-OUTPUT: prompt yang sama dalam format Veo-ready — satu paragraf padat, max 80 kata.
+OUTPUT: prompt yang sama dalam format Veo-ready — 1-2 paragraf padat, max 150 kata.
 
 ATURAN WAJIB:
 1. PERTAHANKAN dialog model PERSIS kata per kata — jangan translate, jangan paraphrase, jangan persingkat. Dialog biasanya ditulis setelah "model berbicara:" atau dalam tanda kutip.
@@ -318,4 +318,4 @@ INPUT: "Model wanita duduk santai di sofa krem, mengambil botol GlowBooster dari
 OUTPUT: "Indonesian woman sits on cream sofa, picks up GlowBooster bottle from table, smiles warmly at camera. Speaks directly to camera, lips sync: 'Kulitku kusam? Oh sekarang sudah bye-bye! Pake tiap pagi, hasilnya langsung keliatan.' Static camera, single take, clean frame."`;
 
 export const CLEAN_VEO_USER = (rawPrompt: string) =>
-  `Format prompt berikut ke Veo-ready (max 80 kata). Pertahankan dialog Indonesia persis. Convert visual/technical terms ke Inggris:\n\n${rawPrompt}`;
+  `Format prompt berikut ke Veo-ready (1-2 paragraf, max 150 kata). Pertahankan dialog Indonesia persis. Convert visual/technical terms ke Inggris:\n\n${rawPrompt}`;
