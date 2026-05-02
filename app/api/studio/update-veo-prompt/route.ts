@@ -27,14 +27,22 @@ export async function POST(request: NextRequest) {
     }
 
     const db = await getDb();
-    const result = await db.collection('Generations').updateOne(
-      { _id: oid, 'clips.index': clipIndex },
-      { $set: { 'clips.$.veo_prompt': veoPrompt, 'clips.$.updated_at': new Date() } }
-    );
 
-    if (result.matchedCount === 0) {
+    // Verifikasi clip ada dulu
+    const generation = await db.collection('Generations').findOne({ _id: oid });
+    if (!generation) {
+      return NextResponse.json({ error: 'Generation not found' }, { status: 404 });
+    }
+    const clips = (generation.clips ?? []) as Array<{ index: number }>;
+    if (!clips.find((c) => c.index === clipIndex)) {
       return NextResponse.json({ error: 'Clip not found' }, { status: 404 });
     }
+
+    await db.collection('Generations').updateOne(
+      { _id: oid },
+      { $set: { 'clips.$[c].veo_prompt': veoPrompt, 'clips.$[c].updated_at': new Date() } },
+      { arrayFilters: [{ 'c.index': clipIndex }] }
+    );
 
     return NextResponse.json({ ok: true });
   } catch (error) {

@@ -42,8 +42,9 @@ export async function POST(request: NextRequest) {
     const veoPrompt = await cleanVeoPrompt(clip.prompt, { generationId });
 
     await db.collection('Generations').updateOne(
-      { _id: oid, 'clips.index': clipIndex },
-      { $set: { 'clips.$.veo_prompt': veoPrompt, 'clips.$.updated_at': new Date() } }
+      { _id: oid },
+      { $set: { 'clips.$[c].veo_prompt': veoPrompt, 'clips.$[c].updated_at': new Date() } },
+      { arrayFilters: [{ 'c.index': clipIndex }] }
     );
 
     return NextResponse.json({ veoPrompt });
