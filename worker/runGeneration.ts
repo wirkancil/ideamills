@@ -84,6 +84,7 @@ async function runV2StudioGeneration(generationId: string, payload: V2Payload) {
 
   const allClips = (gen.clips ?? []) as Clip[];
   const productImageUrl = gen.product_image_url as string;
+  const styleNotes = (gen.styleNotes as string | undefined) ?? '';
   const veoModel = (gen.veo_model as string | undefined) ?? 'veo-3.1-fast';
   const aspectRatio = (gen.aspect_ratio as 'landscape' | 'portrait' | undefined) ?? 'landscape';
 
@@ -109,7 +110,7 @@ async function runV2StudioGeneration(generationId: string, payload: V2Payload) {
 
   await processWithConcurrency(clipsToProcess, CLIP_CONCURRENCY, async (clip) => {
     try {
-      await generateClipAssets(generationId, clip, productImageUrl, veoModel, aspectRatio);
+      await generateClipAssets(generationId, clip, productImageUrl, styleNotes, veoModel, aspectRatio);
     } catch (err) {
       const errMsg = err instanceof Error ? err.message : String(err);
       await db.collection('Generations').updateOne(
@@ -157,6 +158,7 @@ async function generateClipAssets(
   generationId: string,
   clip: Clip,
   productImageUrl: string,
+  styleNotes: string,
   veoModel: string,
   aspectRatio: 'landscape' | 'portrait'
 ) {
@@ -272,9 +274,11 @@ async function generateClipAssets(
   } catch (err) {
     console.warn(`[worker] cleanVeoPrompt failed for clip ${clip.index}, using raw prompt:`, err);
   }
+  // Final prompt ke Veo = styleNotes (model & setting context) + veo_prompt (aksi & dialog)
+  const finalVeoPrompt = [styleNotes, veoPrompt].filter(Boolean).join('\n\n');
   const veoJobId = await createVideoJob({
     imageUrl: mediaGenerationId,
-    prompt: veoPrompt,
+    prompt: finalVeoPrompt,
     model: veoModel,
     aspectRatio,
   });

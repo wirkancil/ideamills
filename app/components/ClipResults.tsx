@@ -1,6 +1,7 @@
 'use client';
 
 import { useState } from 'react';
+import type { ReactNode } from 'react';
 import { Button } from './ui/button';
 import { Card, CardContent } from './ui/card';
 import { Loader2, RefreshCw, Download, AlertCircle, ChevronDown, ChevronUp, Copy, Check, ArrowRight, Sparkles } from 'lucide-react';
@@ -155,50 +156,47 @@ export function ClipResults({ generationId, clips, productNotes = '', styleNotes
             </div>
 
             {expandedClip === clip.index && (
-              <div className="space-y-3 border-t pt-3 text-xs">
-                {productNotes && (
+              <div className="space-y-2 border-t pt-3 text-xs">
+                {/* Untuk Imagen — accordion */}
+                {(productNotes || styleNotes) && (
+                  <PromptAccordion label="Untuk Imagen (generate start image)">
+                    {productNotes && (
+                      <PromptBlock
+                        label="Product Detail"
+                        value={productNotes}
+                        fieldId={`product-${clip.index}`}
+                        copiedField={copiedField}
+                        onCopy={copyToClipboard}
+                      />
+                    )}
+                    {styleNotes && (
+                      <PromptBlock
+                        label="Style Notes"
+                        value={styleNotes}
+                        fieldId={`style-${clip.index}`}
+                        copiedField={copiedField}
+                        onCopy={copyToClipboard}
+                      />
+                    )}
+                  </PromptAccordion>
+                )}
+                {/* Untuk Veo — accordion */}
+                <PromptAccordion label="Untuk Veo (generate video)" defaultOpen>
                   <PromptBlock
-                    label="Product Detail"
-                    value={productNotes}
-                    fieldId={`product-${clip.index}`}
+                    label="Clip Prompt (original)"
+                    value={clip.prompt}
+                    fieldId={`prompt-${clip.index}`}
                     copiedField={copiedField}
                     onCopy={copyToClipboard}
                   />
-                )}
-                {styleNotes && (
                   <PromptBlock
-                    label="Style Notes"
-                    value={styleNotes}
-                    fieldId={`style-${clip.index}`}
-                    copiedField={copiedField}
-                    onCopy={copyToClipboard}
-                  />
-                )}
-                <PromptBlock
-                  label="Clip Prompt (original)"
-                  value={clip.prompt}
-                  fieldId={`prompt-${clip.index}`}
-                  copiedField={copiedField}
-                  onCopy={copyToClipboard}
-                />
-                {clip.veo_prompt && (
-                  <PromptBlock
-                    label="Veo Prompt (dikirim ke Veo)"
-                    value={clip.veo_prompt}
+                    label={clip.veo_prompt ? 'Veo Prompt (dikirim ke Veo)' : 'Veo Prompt (belum di-clean — sama dengan original)'}
+                    value={[styleNotes, clip.veo_prompt ?? clip.prompt].filter(Boolean).join('\n\n')}
                     fieldId={`veo-${clip.index}`}
                     copiedField={copiedField}
                     onCopy={copyToClipboard}
                   />
-                )}
-                {(productNotes || styleNotes) && (
-                  <PromptBlock
-                    label="Full Prompt (preview gabungan — hanya Clip Prompt yang dikirim ke Veo)"
-                    value={[productNotes, styleNotes, clip.veo_prompt ?? clip.prompt].filter(Boolean).join('\n\n')}
-                    fieldId={`full-${clip.index}`}
-                    copiedField={copiedField}
-                    onCopy={copyToClipboard}
-                  />
-                )}
+                </PromptAccordion>
               </div>
             )}
 
@@ -350,6 +348,27 @@ function PromptBlock({ label, value, fieldId, copiedField, onCopy }: PromptBlock
       <pre className="bg-muted/50 rounded-md p-2 whitespace-pre-wrap font-mono text-[11px] leading-relaxed border">
         {value}
       </pre>
+    </div>
+  );
+}
+
+function PromptAccordion({ label, children, defaultOpen = false }: { label: string; children: ReactNode; defaultOpen?: boolean }) {
+  const [open, setOpen] = useState(defaultOpen);
+  return (
+    <div className="border rounded-md overflow-hidden">
+      <button
+        type="button"
+        onClick={() => setOpen(!open)}
+        className="w-full flex items-center justify-between px-3 py-2 bg-muted/30 hover:bg-muted/50 text-xs font-semibold text-foreground"
+      >
+        {label}
+        {open ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
+      </button>
+      {open && (
+        <div className="p-3 space-y-3">
+          {children}
+        </div>
+      )}
     </div>
   );
 }
