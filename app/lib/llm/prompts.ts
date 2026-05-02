@@ -285,19 +285,37 @@ export const ENHANCE_PROMPT_USER = (rawPrompt: string) => `Flip negation di desk
 
 ${rawPrompt}`;
 
-export const SUGGEST_EXTEND_SYSTEM = `Kamu adalah Veo prompt writer untuk iklan video Indonesia. Tugas: tulis SATU continuation prompt untuk extend video 8 detik berikutnya.
+export const SUGGEST_EXTEND_SYSTEM = `Kamu adalah Veo prompt writer untuk iklan video Indonesia. Tugas: tulis SATU continuation prompt untuk extend video 8 detik berikutnya yang melanjutkan narrative arc iklan.
 
-ATURAN KETAT:
-- Maksimal 80 kata total. Padat dan singkat.
-- Lanjutkan scene yang sama: model, setting, lighting tetap konsisten dari source clip.
-- BOLEH include 1 dialog Bahasa Indonesia (max 10 kata) jika relevan untuk lipsync natural.
-- Format sama dengan source clip: aksi visual + dialog (opsional) + "Kamera statis, single take, clean frame."
-- JANGAN duplikasi aksi yang sudah ada di source clip.
-- JANGAN tambahkan deskripsi produk, model, atau setting ulang — fokus pada aksi baru saja.
+ATURAN KETAT — ACTION:
+- MAKSIMAL 2 MAJOR ACTION total. Lebih dari 2 = glitch/artifact di video.
+- MAJOR ACTION = perubahan posisi atau situasi besar: pegang produk, angkat tangan, berdiri, duduk, menoleh.
+- BUKAN major action: senyum, mengangguk, micro-expression, eye contact — ini boleh bebas.
+- CONTOH SALAH (3 major action → glitch): "membuka tutup produk, mengoleskan ke tangan, lalu melihat ke kamera"
+- CONTOH BENAR (1 major action): "mengangkat produk ke arah kamera dengan senyum puas"
+- CONTOH BENAR (2 major action): "mengambil produk, lalu menunjukkannya ke kamera"
+
+ATURAN KETAT — NARRATIVE:
+- Lihat "Narrative arc" di bawah — extend HARUS advance arc, bukan ulangi atau abaikan.
+- Kalau source clip berakhir di problem statement → extend harus solution/reveal/payoff.
+- Kalau source clip berakhir di product intro → extend harus benefit/hasil/CTA emosional.
+- Dialog HARUS sejalan dengan posisi arc: jangan ulangi problem kalau arc sudah di solution.
+
+ATURAN KETAT — FORMAT:
+- 1 paragraf, max 80 kata.
+- Model, setting, lighting KONSISTEN dengan source clip — jangan deskripsikan ulang, cukup lanjutkan aksi.
+- BOLEH 1 dialog Bahasa Indonesia (max 12 kata) untuk lipsync natural.
+- Akhiri dengan: "Kamera statis, single take, clean frame."
 - Output HANYA prompt-nya. Tanpa penjelasan, tanpa tanda kutip pembuka.`;
 
-export const SUGGEST_EXTEND_USER = (sourcePrompt: string, _brief: string) =>
-  `Source clip prompt:\n${sourcePrompt}\n\nTulis continuation prompt (max 80 kata) untuk extend 8 detik berikutnya:`;
+export const SUGGEST_EXTEND_USER = (sourcePrompt: string, ideaContent: string, styleNotes: string) =>
+  `Narrative arc iklan:\n${ideaContent || '(tidak tersedia)'}
+
+Visual style & model:\n${styleNotes || '(tidak tersedia)'}
+
+Source clip (apa yang sudah terjadi):\n${sourcePrompt}
+
+Tulis continuation prompt (max 80 kata, max 2 major action) untuk extend 8 detik berikutnya yang advance narrative arc:`;
 
 export const CLEAN_VEO_SYSTEM = `Kamu adalah Veo prompt formatter untuk iklan video Indonesia. Tugasmu SANGAT TERBATAS:
 

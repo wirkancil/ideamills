@@ -237,7 +237,8 @@ export async function enhanceVeoPrompt(
 
 export async function suggestExtendPrompt(
   sourcePrompt: string,
-  brief: string,
+  ideaContent: string,
+  styleNotes: string,
   _config?: Partial<ModelConfig>,
   ctx?: { jobId?: string; generationId?: string }
 ): Promise<string> {
@@ -247,7 +248,7 @@ export async function suggestExtendPrompt(
     'google/gemini-2.5-flash',
     [
       { role: 'system', content: SUGGEST_EXTEND_SYSTEM },
-      { role: 'user', content: SUGGEST_EXTEND_USER(sourcePrompt, brief) },
+      { role: 'user', content: SUGGEST_EXTEND_USER(sourcePrompt, ideaContent, styleNotes) },
     ],
     { maxTokens: 2000, timeoutMs: 30_000 }
   );
