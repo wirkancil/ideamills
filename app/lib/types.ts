@@ -69,6 +69,7 @@ export interface DBGeneration {
   // Expanded clips (v2)
   styleNotes?: string | null;
   clips?: Clip[];
+  concatenated_videos?: ConcatenatedVideo[];
 
   modelConfig?: Record<string, unknown>;
   status: 'queued' | 'processing' | 'completed' | 'partial' | 'failed' | 'canceled';
@@ -121,7 +122,19 @@ export interface Clip {
   video_error?: string | null;
   media_generation_id?: string | null;
   video_job_id?: string | null;
+  veo_prompt?: string | null;
+  is_extended?: boolean;
+  extended_from_index?: number | null;
   created_at: Date;
   updated_at?: Date;
+}
+
+export interface ConcatenatedVideo {
+  id: string;
+  clip_indices: number[];
+  status: 'generating' | 'done' | 'failed';
+  local_path?: string | null;
+  error?: string | null;
+  created_at: Date;
 }
 
