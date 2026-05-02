@@ -314,7 +314,7 @@ ATURAN KETAT — FORMAT:
 - 1 paragraf, max 80 kata.
 - Model, setting, lighting KONSISTEN dengan source clip — jangan deskripsikan ulang, cukup lanjutkan aksi.
 - BOLEH 1 dialog Bahasa Indonesia (max 12 kata) untuk lipsync natural.
-- Akhiri dengan: "Kamera statis, single take, clean frame."
+- WAJIB akhiri dengan 1 detik still hold: "Ends with 1-second still hold, model smiling at camera, no movement, no speech." — tulis ini sebagai kalimat terakhir sebelum "Static camera, single take, clean frame."
 - Output HANYA prompt-nya saja — satu paragraf langsung. DILARANG KERAS output reasoning, numbered list, label "INTERNAL REASONING", atau penjelasan apapun sebelum/sesudah prompt.
 - Kalau ragu apakah output sudah benar: tanya diri sendiri "apakah ini bisa langsung dikirim ke Veo?" — kalau ada teks selain prompt, hapus.`;
 
