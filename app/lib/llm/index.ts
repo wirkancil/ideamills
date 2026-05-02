@@ -252,7 +252,19 @@ export async function suggestExtendPrompt(
     ],
     { maxTokens: 2000, timeoutMs: 30_000 }
   );
-  const prompt = (result as string).trim();
+  let prompt = (result as string).trim();
+
+  // Strip reasoning leakage — ambil hanya bagian setelah "Continuation prompt:" jika ada
+  const continuationMatch = prompt.match(/continuation prompt[:\s]+([\s\S]+)/i);
+  if (continuationMatch) {
+    prompt = continuationMatch[1].trim();
+  }
+  // Jika masih ada numbered list atau reasoning header, ambil paragraf terakhir saja
+  if (/^\d+\.|INTERNAL REASONING/i.test(prompt)) {
+    const paragraphs = prompt.split(/\n{2,}/).map((p) => p.trim()).filter(Boolean);
+    prompt = paragraphs[paragraphs.length - 1] ?? prompt;
+  }
+
   if (!prompt) {
     throw new LLMError('Empty extend prompt suggestion', 'INVALID_RESPONSE', 'openrouter', 'google/gemini-2.5-flash');
   }

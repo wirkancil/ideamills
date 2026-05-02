@@ -315,7 +315,8 @@ ATURAN KETAT — FORMAT:
 - Model, setting, lighting KONSISTEN dengan source clip — jangan deskripsikan ulang, cukup lanjutkan aksi.
 - BOLEH 1 dialog Bahasa Indonesia (max 12 kata) untuk lipsync natural.
 - Akhiri dengan: "Kamera statis, single take, clean frame."
-- Output HANYA prompt-nya. Tanpa penjelasan, tanpa tanda kutip pembuka.`;
+- Output HANYA prompt-nya saja — satu paragraf langsung. DILARANG KERAS output reasoning, numbered list, label "INTERNAL REASONING", atau penjelasan apapun sebelum/sesudah prompt.
+- Kalau ragu apakah output sudah benar: tanya diri sendiri "apakah ini bisa langsung dikirim ke Veo?" — kalau ada teks selain prompt, hapus.`;
 
 export const SUGGEST_EXTEND_USER = (sourcePrompt: string, ideaContent: string, styleNotes: string) =>
   `Narrative arc iklan:\n${ideaContent || '(tidak tersedia)'}
