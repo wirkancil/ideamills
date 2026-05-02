@@ -178,19 +178,19 @@ export function ClipResults({ generationId, clips, productNotes = '', styleNotes
                         onCopy={copyToClipboard}
                       />
                     )}
+                    <PromptBlock
+                      label="Clip Prompt (original)"
+                      value={clip.prompt}
+                      fieldId={`prompt-${clip.index}`}
+                      copiedField={copiedField}
+                      onCopy={copyToClipboard}
+                    />
                   </PromptAccordion>
                 )}
                 {/* Untuk Veo — accordion */}
                 <PromptAccordion label="Untuk Veo (generate video)" defaultOpen>
                   <PromptBlock
-                    label="Clip Prompt (original)"
-                    value={clip.prompt}
-                    fieldId={`prompt-${clip.index}`}
-                    copiedField={copiedField}
-                    onCopy={copyToClipboard}
-                  />
-                  <PromptBlock
-                    label={clip.veo_prompt ? 'Veo Prompt (dikirim ke Veo)' : 'Veo Prompt (belum di-clean — sama dengan original)'}
+                    label="Veo Prompt (dikirim ke Veo)"
                     value={[styleNotes, clip.veo_prompt ?? clip.prompt].filter(Boolean).join('\n\n')}
                     fieldId={`veo-${clip.index}`}
                     copiedField={copiedField}
