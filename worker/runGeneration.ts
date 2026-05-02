@@ -261,18 +261,21 @@ async function generateClipAssets(
     { arrayFilters }
   );
 
-  // Clean prompt: convert Indonesia naratif → Veo-ready English + dialog Indo intact.
-  // Fallback ke clip.prompt jika cleaning gagal agar generation tidak terhenti.
-  let veoPrompt = clip.prompt;
-  try {
-    veoPrompt = await cleanVeoPrompt(clip.prompt, { generationId });
-    await db.collection('Generations').updateOne(
-      { _id: oid },
-      { $set: { 'clips.$[c].veo_prompt': veoPrompt, 'clips.$[c].updated_at': new Date() } },
-      { arrayFilters }
-    );
-  } catch (err) {
-    console.warn(`[worker] cleanVeoPrompt failed for clip ${clip.index}, using raw prompt:`, err);
+  // Gunakan veo_prompt yang sudah ada jika user sudah edit manual.
+  // Jika belum ada, generate via cleanVeoPrompt. Fallback ke clip.prompt jika gagal.
+  let veoPrompt = clip.veo_prompt ?? null;
+  if (!veoPrompt) {
+    try {
+      veoPrompt = await cleanVeoPrompt(clip.prompt, { generationId });
+      await db.collection('Generations').updateOne(
+        { _id: oid },
+        { $set: { 'clips.$[c].veo_prompt': veoPrompt, 'clips.$[c].updated_at': new Date() } },
+        { arrayFilters }
+      );
+    } catch (err) {
+      console.warn(`[worker] cleanVeoPrompt failed for clip ${clip.index}, using raw prompt:`, err);
+      veoPrompt = clip.prompt;
+    }
   }
   // Final prompt ke Veo = styleNotes (model & setting context) + veo_prompt (aksi & dialog)
   const finalVeoPrompt = [styleNotes, veoPrompt].filter(Boolean).join('\n\n');

@@ -63,6 +63,8 @@ export async function POST(request: NextRequest) {
             video_error: null,
             media_generation_id: null,
             video_job_id: null,
+            // Reset veo_prompt agar worker generate ulang dari prompt baru
+            veo_prompt: null,
             updated_at: now,
           }
         : c
