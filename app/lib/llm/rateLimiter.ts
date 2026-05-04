@@ -67,8 +67,8 @@ export async function initBucket(key: string, capacity: number): Promise<void> {
   await db.collection('llm_rate_limits').updateOne(
     { key },
     {
-      $setOnInsert: { key, tokens: capacity, capacity, created_at: new Date() },
-      $set: { capacity }, // always keep capacity field in sync
+      $setOnInsert: { key, tokens: capacity, created_at: new Date() },
+      $set: { capacity },
     },
     { upsert: true }
   );
