@@ -1,9 +1,20 @@
+import { getSetting } from './settings';
+
 const BASE_URL = 'https://api.useapi.net/v1';
 
 function authHeader(): { Authorization: string } {
   const token = process.env.USEAPI_TOKEN;
   if (!token) throw new Error('USEAPI_TOKEN not set');
   return { Authorization: `Bearer ${token}` };
+}
+
+async function resolveEmail(override?: string): Promise<string> {
+  if (override) return override;
+  const fromDb = await getSetting('google_flow_email');
+  if (fromDb) return fromDb;
+  const fromEnv = process.env.USEAPI_GOOGLE_EMAIL;
+  if (!fromEnv) throw new Error('USEAPI_GOOGLE_EMAIL not set');
+  return fromEnv;
 }
 
 export interface VideoGenerateOptions {
@@ -55,8 +66,7 @@ function stripDataUrlPrefix(input: string): string {
  * Returns the nested `mediaGenerationId` string for use as `startImage` in createVideoJob.
  */
 export async function uploadImageAsset(imageBase64: string, email?: string): Promise<string> {
-  const userEmail = email ?? process.env.USEAPI_GOOGLE_EMAIL;
-  if (!userEmail) throw new Error('USEAPI_GOOGLE_EMAIL not set');
+  const userEmail = await resolveEmail(email);
 
   const mime = detectMimeFromDataUrl(imageBase64);
   const buffer = Buffer.from(stripDataUrlPrefix(imageBase64), 'base64');
@@ -86,8 +96,7 @@ export async function uploadImageAsset(imageBase64: string, email?: string): Pro
 }
 
 export async function createVideoJob(opts: VideoGenerateOptions): Promise<string> {
-  const userEmail = opts.email ?? process.env.USEAPI_GOOGLE_EMAIL;
-  if (!userEmail) throw new Error('USEAPI_GOOGLE_EMAIL not set');
+  const userEmail = await resolveEmail(opts.email);
 
   const refs = opts.referenceImageUrls ?? [];
   const referenceFields: Record<string, string> = {};
@@ -190,8 +199,7 @@ interface RawImageResponse {
  * Endpoint: POST /google-flow/images
  */
 export async function generateImage(opts: ImageGenerateOptions): Promise<ImageGenerateResult> {
-  const userEmail = opts.email ?? process.env.USEAPI_GOOGLE_EMAIL;
-  if (!userEmail) throw new Error('USEAPI_GOOGLE_EMAIL not set');
+  const userEmail = await resolveEmail(opts.email);
 
   const refs = opts.referenceImageUrls ?? [];
   const referenceFields: Record<string, string> = {};

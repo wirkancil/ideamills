@@ -184,7 +184,8 @@ function HistoryTab() {
         <div className="text-xs text-muted-foreground">
           {snap && (
             <>Kurs: 1 USD = {new Intl.NumberFormat('id-ID').format(snap.exchangeRate.usdToIdr)} IDR
-            {' · '}{snap.exchangeRate.updatedAt}</>
+            {' · '}Data per {snap.exchangeRate.updatedAt} (forex terakhir)</>
+
           )}
         </div>
         <button
@@ -242,9 +243,113 @@ function HistoryTab() {
   );
 }
 
+// ─── Settings Tab ────────────────────────────────────────────────────────────
+
+function SettingsTab() {
+  const [email, setEmail] = useState('');
+  const [cookies, setCookies] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [result, setResult] = useState<{ ok: boolean; message: string } | null>(null);
+
+  useEffect(() => {
+    fetch('/api/admin/update-google-flow')
+      .then((r) => r.json())
+      .then((d) => { if (d.email) setEmail(d.email); })
+      .catch(() => {});
+  }, []);
+
+  const handleSubmit = async () => {
+    if (!cookies.trim()) {
+      setResult({ ok: false, message: 'Cookies tidak boleh kosong' });
+      return;
+    }
+    setLoading(true);
+    setResult(null);
+    try {
+      const res = await fetch('/api/admin/update-google-flow', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ cookies: cookies.trim(), email: email.trim() }),
+      });
+      const data = await res.json();
+      if (res.ok) {
+        const emailKey = email.trim();
+        const health = (emailKey && data[emailKey]?.health) ?? data.health ?? 'Session diperbarui';
+        setResult({ ok: true, message: health });
+        setCookies('');
+      } else {
+        setResult({ ok: false, message: data.error ?? `Error ${res.status}` });
+      }
+    } catch (err) {
+      setResult({ ok: false, message: err instanceof Error ? err.message : 'Network error' });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <div className="space-y-4 max-w-2xl">
+      <div className="space-y-1.5">
+        <label className="text-sm font-medium">Email Akun Google Flow</label>
+        <input
+          type="email"
+          value={email}
+          onChange={(e) => setEmail(e.target.value)}
+          placeholder="email@example.com"
+          className="w-full text-sm border rounded-md px-3 py-2 bg-background"
+        />
+        <p className="text-xs text-muted-foreground">Email akun Google yang dipakai untuk Google Flow. Disimpan ke DB.</p>
+      </div>
+
+      <div className="space-y-1.5">
+        <label className="text-sm font-medium">Cookies Google Flow</label>
+        <textarea
+          value={cookies}
+          onChange={(e) => setCookies(e.target.value)}
+          placeholder="Paste isi file .cookies.txt di sini..."
+          rows={8}
+          className="w-full text-xs font-mono border rounded-md px-3 py-2 bg-background resize-y"
+        />
+        <p className="text-xs text-muted-foreground">Export dari browser extension, paste seluruh isi file. Tidak disimpan — langsung dikirim ke useapi.net.</p>
+      </div>
+
+      <div className="rounded-md border p-3 space-y-2 text-xs text-muted-foreground bg-muted/40">
+        <p className="font-medium text-foreground text-sm">Cara export cookies Google Flow:</p>
+        <ol className="list-decimal list-inside space-y-1.5 leading-relaxed">
+          <li>Install extension <span className="font-medium text-foreground">Cookie Editor</span> di Chrome/Edge</li>
+          <li>Login ke akun Google yang dipakai untuk Google Flow di <span className="font-mono">labs.google/flow</span></li>
+          <li>Klik icon Cookie Editor di toolbar browser</li>
+          <li>Klik tombol <span className="font-medium text-foreground">Export</span> → pilih format <span className="font-medium text-foreground">Header String</span></li>
+          <li>Paste hasilnya ke field di atas</li>
+          <li>Isi email akun, lalu klik <span className="font-medium text-foreground">Simpan & Refresh Session</span></li>
+        </ol>
+        <p className="text-[11px]">⚠️ Lakukan setiap kali muncul error &quot;Failed to refresh session&quot; di halaman Status.</p>
+      </div>
+
+      <button
+        onClick={handleSubmit}
+        disabled={loading}
+        className="px-4 py-2 rounded-md bg-primary text-primary-foreground text-sm font-medium disabled:opacity-50 flex items-center gap-2"
+      >
+        {loading && <Loader2 className="w-4 h-4 animate-spin" />}
+        Simpan & Refresh Session
+      </button>
+
+      {result && (
+        <div className={`p-3 rounded-md text-sm ${result.ok ? 'bg-green-500/10 text-green-700' : 'bg-destructive/10 text-destructive'}`}>
+          {result.ok
+            ? <CheckCircle2 className="w-4 h-4 inline mr-1.5" />
+            : <AlertCircle className="w-4 h-4 inline mr-1.5" />}
+          {result.message}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
-type Tab = 'status' | 'history';
+type Tab = 'status' | 'history' | 'settings';
 
 export default function MonitoringPage() {
   const [tab, setTab] = useState<Tab>('status');
@@ -256,7 +361,7 @@ export default function MonitoringPage() {
         <h1 className="text-2xl font-bold mb-6">Monitoring</h1>
 
         <div className="flex gap-1 mb-6 border-b">
-          {(['status', 'history'] as Tab[]).map((t) => (
+          {(['status', 'history', 'settings'] as Tab[]).map((t) => (
             <button
               key={t}
               onClick={() => setTab(t)}
@@ -266,12 +371,12 @@ export default function MonitoringPage() {
                   : 'border-transparent text-muted-foreground hover:text-foreground'
               }`}
             >
-              {t === 'status' ? 'Status' : 'Riwayat Biaya'}
+              {t === 'status' ? 'Status' : t === 'history' ? 'Riwayat Biaya' : 'Settings'}
             </button>
           ))}
         </div>
 
-        {tab === 'status' ? <StatusTab /> : <HistoryTab />}
+        {tab === 'status' ? <StatusTab /> : tab === 'history' ? <HistoryTab /> : <SettingsTab />}
       </main>
     </div>
   );

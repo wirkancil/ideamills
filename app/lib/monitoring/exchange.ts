@@ -1,4 +1,4 @@
-const CACHE_MS = 24 * 60 * 60 * 1000;
+const CACHE_MS = 60 * 60 * 1000; // 1 jam
 let cached: { rate: number; updatedAt: string; expiresAt: number } | null = null;
 
 export async function fetchUsdToIdr(): Promise<{ rate: number; updatedAt: string }> {
