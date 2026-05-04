@@ -313,15 +313,17 @@ function SettingsTab() {
         <p className="text-xs text-muted-foreground">Export dari browser extension, paste seluruh isi file. Tidak disimpan — langsung dikirim ke useapi.net.</p>
       </div>
 
-      <div className="rounded-md border p-3 space-y-2 text-xs text-muted-foreground bg-muted/40">
-        <p className="font-medium text-foreground text-sm">Cara export cookies Google Flow:</p>
+      <div className="rounded-md border p-3 space-y-2.5 text-xs text-muted-foreground bg-muted/40">
+        <p className="font-medium text-foreground text-sm">Cara update cookies Google Flow:</p>
+        <p className="text-[11px] text-amber-600 font-medium">⚠️ Gunakan Opera/Brave/Ungoogled Chromium — JANGAN Google Chrome. Jangan akses akun ini langsung setelah setup.</p>
         <ol className="list-decimal list-inside space-y-1.5 leading-relaxed">
-          <li>Install extension <span className="font-medium text-foreground">Cookie Editor</span> di Chrome/Edge</li>
-          <li>Login ke akun Google yang dipakai untuk Google Flow di <span className="font-mono">labs.google/flow</span></li>
-          <li>Klik icon Cookie Editor di toolbar browser</li>
-          <li>Klik tombol <span className="font-medium text-foreground">Export</span> → pilih format <span className="font-medium text-foreground">Header String</span></li>
-          <li>Paste hasilnya ke field di atas</li>
-          <li>Isi email akun, lalu klik <span className="font-medium text-foreground">Simpan & Refresh Session</span></li>
+          <li>Buka browser, hapus semua cookies terlebih dahulu (Settings → Delete browsing data → All time → Cookies)</li>
+          <li>Login ke <span className="font-mono font-medium text-foreground">https://labs.google/fx/tools/flow</span> dengan akun Gmail khusus API</li>
+          <li>Setelah login, navigasi ke <span className="font-mono font-medium text-foreground">https://myaccount.google.com/</span></li>
+          <li>Buka DevTools: klik kanan → Inspect (atau F12)</li>
+          <li>Pilih tab <span className="font-medium text-foreground">Application</span> → Cookies → <span className="font-mono">https://accounts.google.com/</span></li>
+          <li>Select all cookies (<span className="font-medium text-foreground">Ctrl+A</span>) lalu copy (<span className="font-medium text-foreground">Ctrl+C</span>)</li>
+          <li>Paste ke field cookies di atas, isi email, lalu klik <span className="font-medium text-foreground">Simpan & Refresh Session</span></li>
         </ol>
         <p className="text-[11px]">⚠️ Lakukan setiap kali muncul error &quot;Failed to refresh session&quot; di halaman Status.</p>
       </div>
