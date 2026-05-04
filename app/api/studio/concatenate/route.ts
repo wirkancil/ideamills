@@ -7,6 +7,7 @@ import path from 'path';
 import { getDb } from '@/app/lib/mongoClient';
 import { concatenateVideos } from '@/app/lib/useapi';
 import { storagePathToUrl } from '@/app/lib/storage';
+import { logAssetUsage } from '@/app/lib/monitoring/assetUsage';
 import type { Clip, ConcatenatedVideo } from '@/app/lib/types';
 
 const RequestSchema = z.object({
@@ -84,6 +85,16 @@ export async function POST(request: NextRequest) {
       const filePath = path.join(dir, `concat_${concatId}.mp4`);
       fs.writeFileSync(filePath, buffer);
       const localUrl = storagePathToUrl(filePath);
+
+      await logAssetUsage({
+        generationId,
+        clipIndex: -1,
+        service: 'veo',
+        model: 'concatenate',
+        creditCost: 0,
+        costUsd: 0,
+        createdAt: new Date(),
+      });
 
       await db.collection('Generations').updateOne(
         { _id: oid, 'concatenated_videos.id': concatId },
