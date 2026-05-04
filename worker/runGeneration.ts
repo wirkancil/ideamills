@@ -78,6 +78,7 @@ async function runV2StudioGeneration(generationId: string, payload: V2Payload) {
   const db = await getDb();
   const oid = new ObjectId(generationId);
 
+  try {
   await db.collection('Generations').updateOne(
     { _id: oid },
     {
@@ -98,6 +99,7 @@ async function runV2StudioGeneration(generationId: string, payload: V2Payload) {
   const styleNotes = (gen.styleNotes as string | undefined) ?? '';
   const veoModel = (gen.veo_model as string | undefined) ?? 'veo-3.1-fast';
   const aspectRatio = (gen.aspect_ratio as 'landscape' | 'portrait' | undefined) ?? 'landscape';
+  const voiceProfile = (gen.voice_profile as string | undefined) ?? '';
 
   const clipsToProcess =
     typeof payload.v2RegenerateClipIndex === 'number'
@@ -126,7 +128,7 @@ async function runV2StudioGeneration(generationId: string, payload: V2Payload) {
     if (clip.index === 0) {
       // Clip 0 selalu generate normal
       try {
-        await generateClipAssets(generationId, clip, productImageUrl, styleNotes, veoModel, aspectRatio);
+        await generateClipAssets(generationId, clip, productImageUrl, styleNotes, veoModel, aspectRatio, voiceProfile);
       } catch (err) {
         const errMsg = err instanceof Error ? err.message : String(err);
         await db.collection('Generations').updateOne(
@@ -152,7 +154,7 @@ async function runV2StudioGeneration(generationId: string, payload: V2Payload) {
         );
       } else {
         try {
-          await extendClipAssets(generationId, clip, prevMediaId, styleNotes, veoModel);
+          await extendClipAssets(generationId, clip, prevMediaId, styleNotes, veoModel, voiceProfile);
         } catch (err) {
           const errMsg = err instanceof Error ? err.message : String(err);
           await db.collection('Generations').updateOne(
@@ -171,7 +173,7 @@ async function runV2StudioGeneration(generationId: string, payload: V2Payload) {
     for (const clip of sorted) {
       if (clip.index === 0 || prevMediaId === null) {
         try {
-          await generateClipAssets(generationId, clip, productImageUrl, styleNotes, veoModel, aspectRatio);
+          await generateClipAssets(generationId, clip, productImageUrl, styleNotes, veoModel, aspectRatio, voiceProfile);
           prevMediaId = await getCompletedMediaId(generationId, clip.index);
         } catch (err) {
           const errMsg = err instanceof Error ? err.message : String(err);
@@ -185,7 +187,7 @@ async function runV2StudioGeneration(generationId: string, payload: V2Payload) {
         }
       } else {
         try {
-          await extendClipAssets(generationId, clip, prevMediaId, styleNotes, veoModel);
+          await extendClipAssets(generationId, clip, prevMediaId, styleNotes, veoModel, voiceProfile);
           prevMediaId = await getCompletedMediaId(generationId, clip.index);
         } catch (err) {
           const errMsg = err instanceof Error ? err.message : String(err);
@@ -222,6 +224,23 @@ async function runV2StudioGeneration(generationId: string, payload: V2Payload) {
       },
     }
   );
+  } catch (err) {
+    const errMsg = err instanceof Error ? err.message : String(err);
+    console.error(`[worker] runV2StudioGeneration fatal error:`, err);
+    await db.collection('Generations').updateOne(
+      { _id: oid },
+      {
+        $set: {
+          status: 'failed',
+          progress: 100,
+          progress_label: 'Gagal',
+          error_message: errMsg,
+          updated_at: new Date(),
+        },
+      }
+    ).catch(() => {});
+    throw err;
+  }
 }
 
 // ============================================================
@@ -234,7 +253,8 @@ async function generateClipAssets(
   productImageUrl: string,
   styleNotes: string,
   veoModel: string,
-  aspectRatio: 'landscape' | 'portrait'
+  aspectRatio: 'landscape' | 'portrait',
+  voiceProfile: string = '',
 ) {
   const db = await getDb();
   const oid = new ObjectId(generationId);
@@ -256,20 +276,23 @@ async function generateClipAssets(
     imageData = clip.imageDataUrl;
   } else {
     // ai-generate: imageDataUrl sudah dibuat di frontend lewat /api/studio/generate-image preview
+    // Fallback ke foto produk kalau user belum generate preview
     if (!clip.imageDataUrl) {
-      throw new Error('imageMode=ai-generate missing imageDataUrl (preview tidak di-generate sebelum Buat Video)');
+      console.warn(`[worker] Clip ${clip.index} imageMode=ai-generate tapi imageDataUrl kosong — fallback ke foto produk`);
+      imageData = productImageUrl;
+    } else {
+      imageData = clip.imageDataUrl;
+      // Extension match dengan mime type di data URL (Imagen kadang output PNG)
+      const mimeMatch = imageData.match(/^data:image\/(png|jpeg|jpg|webp);base64,/);
+      const ext = mimeMatch?.[1] === 'png' ? 'png' : mimeMatch?.[1] === 'webp' ? 'webp' : 'jpg';
+      const imageFilePath = await saveImage(imageData, generationId, `clip-${clip.index}.${ext}`);
+      const imagePublicUrl = storagePathToUrl(imageFilePath);
+      await db.collection('Generations').updateOne(
+        { _id: oid },
+        { $set: { 'clips.$[c].generated_image_path': imagePublicUrl } },
+        { arrayFilters }
+      );
     }
-    imageData = clip.imageDataUrl;
-    // Extension match dengan mime type di data URL (Imagen kadang output PNG)
-    const mimeMatch = imageData.match(/^data:image\/(png|jpeg|jpg|webp);base64,/);
-    const ext = mimeMatch?.[1] === 'png' ? 'png' : mimeMatch?.[1] === 'webp' ? 'webp' : 'jpg';
-    const imageFilePath = await saveImage(imageData, generationId, `clip-${clip.index}.${ext}`);
-    const imagePublicUrl = storagePathToUrl(imageFilePath);
-    await db.collection('Generations').updateOne(
-      { _id: oid },
-      { $set: { 'clips.$[c].generated_image_path': imagePublicUrl } },
-      { arrayFilters }
-    );
   }
 
   // Upload image to useapi.net for Veo input
@@ -316,7 +339,8 @@ async function generateClipAssets(
       }
     }
   }
-  const finalVeoPrompt = [styleNotes, veoPrompt].filter(Boolean).join('\n\n');
+  const voiceDirection = voiceProfile ? `Voice: ${voiceProfile}` : '';
+  const finalVeoPrompt = [voiceDirection, styleNotes, veoPrompt].filter(Boolean).join('\n\n');
   const veoJobId = await createVideoJob({
     imageUrl: mediaGenerationId,
     prompt: finalVeoPrompt,
@@ -377,6 +401,7 @@ async function extendClipAssets(
   prevMediaGenerationId: string,
   styleNotes: string,
   veoModel: string,
+  voiceProfile: string = '',
 ) {
   const db = await getDb();
   const oid = new ObjectId(generationId);
@@ -416,7 +441,8 @@ async function extendClipAssets(
     }
   }
 
-  const finalPrompt = [styleNotes, veoPrompt].filter(Boolean).join('\n\n');
+  const voiceDirection = voiceProfile ? `Voice: ${voiceProfile}` : '';
+  const finalPrompt = [voiceDirection, styleNotes, veoPrompt].filter(Boolean).join('\n\n');
 
   await db.collection('Generations').updateOne(
     { _id: oid },

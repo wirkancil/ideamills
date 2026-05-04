@@ -2,7 +2,7 @@
 
 export interface GenerationStatus {
   id: string;
-  status: 'queued' | 'running' | 'processing' | 'partial' | 'succeeded' | 'failed' | 'canceled';
+  status: 'queued' | 'running' | 'processing' | 'partial' | 'succeeded' | 'failed' | 'canceled' | 'cancelled' | 'completed' | 'draft';
   progress: number;
   progressLabel?: string;
   engine?: string;

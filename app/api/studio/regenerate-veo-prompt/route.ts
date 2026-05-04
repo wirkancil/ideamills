@@ -41,11 +41,26 @@ export async function POST(request: NextRequest) {
 
     const veoPrompt = await cleanVeoPrompt(clip.prompt, { generationId });
 
-    await db.collection('Generations').updateOne(
+    const result = await db.collection('Generations').updateOne(
       { _id: oid },
       { $set: { 'clips.$[c].veo_prompt': veoPrompt, 'clips.$[c].updated_at': new Date() } },
       { arrayFilters: [{ 'c.index': clipIndex }] }
     );
+
+    if (result.modifiedCount === 0) {
+      // arrayFilters tidak match — fallback full overwrite
+      const gen = await db.collection('Generations').findOne({ _id: oid });
+      const clips = (gen?.clips ?? []) as Array<Record<string, unknown>>;
+      const updatedClips = clips.map((c) =>
+        c.index === clipIndex || c.index === String(clipIndex)
+          ? { ...c, veo_prompt: veoPrompt, updated_at: new Date() }
+          : c
+      );
+      await db.collection('Generations').updateOne(
+        { _id: oid },
+        { $set: { clips: updatedClips } }
+      );
+    }
 
     return NextResponse.json({ veoPrompt });
   } catch (error) {

@@ -18,6 +18,7 @@ import {
   type AspectRatio,
 } from './components/EnginePicker';
 import { ScriptPicker } from '@/app/components/ScriptPicker';
+import { VoiceProfilePicker } from './components/VoiceProfilePicker';
 import { Button } from '@/app/components/ui/button';
 import { Textarea } from '@/app/components/ui/textarea';
 import { Loader2, Video, BookOpen, Wand2 } from 'lucide-react';
@@ -46,6 +47,7 @@ function StudioPageInner() {
   const [ideas, setIdeas] = useState<Idea[]>([]);
   const [productNotes, setProductNotes] = useState('');
   const [styleNotes, setStyleNotes] = useState('');
+  const [voiceProfile, setVoiceProfile] = useState('');
   const [clips, setClips] = useState<ClipDraft[]>([]);
 
   // Quick mode state
@@ -167,6 +169,7 @@ function StudioPageInner() {
           generationId,
           productNotes,
           styleNotes,
+          voiceProfile,
           clips: clips.map((c) => ({
             index: c.index,
             prompt: c.prompt,
@@ -317,6 +320,8 @@ function StudioPageInner() {
               hideSubmit
               hideBrief={mode === 'quick'}
             />
+
+            <VoiceProfilePicker value={voiceProfile} onChange={setVoiceProfile} />
 
             <EnginePicker
               textModel={textModel}

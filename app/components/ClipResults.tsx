@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import type { ReactNode } from 'react';
 import { Button } from './ui/button';
 import { Card, CardContent } from './ui/card';
@@ -13,13 +13,14 @@ interface ClipResultsProps {
   clips: Clip[];
   productNotes?: string;
   styleNotes?: string;
+  voiceProfile?: string;
   onClipUpdated?: () => void;
   concatMode?: boolean;
   selectedForConcat?: number[];
   onToggleConcatSelect?: (idx: number) => void;
 }
 
-export function ClipResults({ generationId, clips, productNotes = '', styleNotes = '', onClipUpdated, concatMode, selectedForConcat, onToggleConcatSelect }: ClipResultsProps) {
+export function ClipResults({ generationId, clips, productNotes = '', styleNotes = '', voiceProfile = '', onClipUpdated, concatMode, selectedForConcat, onToggleConcatSelect }: ClipResultsProps) {
   const [regeneratingIndex, setRegeneratingIndex] = useState<number | null>(null);
   const [expandedClip, setExpandedClip] = useState<number | null>(null);
   const [copiedField, setCopiedField] = useState<string | null>(null);
@@ -31,6 +32,17 @@ export function ClipResults({ generationId, clips, productNotes = '', styleNotes
   const [veoPromptDraft, setVeoPromptDraft] = useState('');
   const [savingVeoPrompt, setSavingVeoPrompt] = useState(false);
   const [regeneratingVeoPrompt, setRegeneratingVeoPrompt] = useState<number | null>(null);
+  // Local override — langsung reflect setelah save/regenerate tanpa tunggu polling
+  const [localVeoPrompts, setLocalVeoPrompts] = useState<Record<number, string>>({});
+
+  // Saat clips di-refresh dari polling dan textarea sedang terbuka, sync draft ke nilai terbaru
+  useEffect(() => {
+    if (editingVeoPrompt === null) return;
+    const clip = clips.find((c) => c.index === editingVeoPrompt);
+    if (!clip) return;
+    const current = localVeoPrompts[editingVeoPrompt] ?? clip.veo_prompt ?? clip.prompt;
+    setVeoPromptDraft(current);
+  }, [clips]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleSuggestPrompt = async (clip: Clip) => {
     setSuggestingPrompt(true);
@@ -96,8 +108,9 @@ export function ClipResults({ generationId, clips, productNotes = '', styleNotes
         const err = await res.json().catch(() => ({}));
         alert(`Gagal simpan: ${err.error ?? res.statusText}`);
       } else {
+        setLocalVeoPrompts(prev => ({ ...prev, [clip.index]: veoPromptDraft.trim() }));
         setEditingVeoPrompt(null);
-        onClipUpdated?.();
+        // Tidak perlu re-fetch — localVeoPrompts sudah reflect nilai baru
       }
     } catch (err) {
       alert(`Gagal simpan: ${err instanceof Error ? err.message : 'unknown'}`);
@@ -119,6 +132,7 @@ export function ClipResults({ generationId, clips, productNotes = '', styleNotes
         alert(`Gagal regenerate: ${err.error ?? res.statusText}`);
       } else {
         const data = await res.json();
+        setLocalVeoPrompts(prev => ({ ...prev, [clip.index]: data.veoPrompt }));
         setVeoPromptDraft(data.veoPrompt);
         setEditingVeoPrompt(clip.index);
         onClipUpdated?.();
@@ -257,7 +271,7 @@ export function ClipResults({ generationId, clips, productNotes = '', styleNotes
                           type="button"
                           onClick={() => {
                             setEditingVeoPrompt(editingVeoPrompt === clip.index ? null : clip.index);
-                            setVeoPromptDraft(clip.veo_prompt ?? clip.prompt);
+                            setVeoPromptDraft(localVeoPrompts[clip.index] ?? clip.veo_prompt ?? clip.prompt);
                           }}
                           className="text-[10px] flex items-center gap-1 text-muted-foreground hover:text-foreground"
                         >
@@ -284,9 +298,16 @@ export function ClipResults({ generationId, clips, productNotes = '', styleNotes
                         </div>
                       </div>
                     ) : (
-                      <pre className="bg-muted/50 rounded-md p-2 whitespace-pre-wrap font-mono text-[11px] leading-relaxed border">
-                        {[styleNotes, clip.veo_prompt ?? clip.prompt].filter(Boolean).join('\n\n')}
-                      </pre>
+                      <div className="space-y-1.5">
+                        {voiceProfile && (
+                          <p className="text-[10px] text-muted-foreground">
+                            <span className="font-medium text-primary">Voice:</span> {voiceProfile}
+                          </p>
+                        )}
+                        <pre className="bg-muted/50 rounded-md p-2 whitespace-pre-wrap font-mono text-[11px] leading-relaxed border">
+                          {[styleNotes, localVeoPrompts[clip.index] ?? clip.veo_prompt ?? clip.prompt].filter(Boolean).join('\n\n')}
+                        </pre>
+                      </div>
                     )}
                   </div>
                 </PromptAccordion>

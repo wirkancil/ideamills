@@ -1,7 +1,7 @@
 'use client';
 
 import { useRef, useState } from 'react';
-import { Upload, Sparkles, Image as ImageIcon, FolderOpen, Loader2 } from 'lucide-react';
+import { Upload, Sparkles, Image as ImageIcon, FolderOpen, Loader2, UserRound, X } from 'lucide-react';
 import type { ClipImageMode } from '@/app/lib/types';
 import { AssetPicker } from '@/app/components/AssetPicker';
 import { IMAGE_MODEL_OPTIONS, type ImageModel } from './ClipEditor';
@@ -41,9 +41,15 @@ export function ImageSlot({
   onChange,
 }: ImageSlotProps) {
   const fileRef = useRef<HTMLInputElement>(null);
+  const ref2FileRef = useRef<HTMLInputElement>(null);
+  const ref3FileRef = useRef<HTMLInputElement>(null);
   const [assetPickerOpen, setAssetPickerOpen] = useState(false);
   const [generating, setGenerating] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [labelText, setLabelText] = useState('');
+  // Slot 2 & 3 — opsional, upload manual (jangan foto wajah)
+  const [ref2DataUrl, setRef2DataUrl] = useState<string | null>(null);
+  const [ref3DataUrl, setRef3DataUrl] = useState<string | null>(null);
 
   const handleAiGenerate = async () => {
     if (clipPrompt.trim().length < 10) {
@@ -52,11 +58,13 @@ export function ImageSlot({
     }
     setGenerating(true);
     setError(null);
+    // reference_1 = foto produk asli (otomatis), reference_2 & 3 = opsional user
+    const referenceDataUrls = [productPreview, ref2DataUrl, ref3DataUrl].filter(Boolean) as string[];
     try {
       const res = await fetch('/api/studio/generate-image', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ prompt: clipPrompt, productNotes, styleNotes, aspectRatio, model: imageModel }),
+        body: JSON.stringify({ prompt: clipPrompt, productNotes: labelText, styleNotes, aspectRatio, model: imageModel, referenceDataUrls }),
       });
       if (!res.ok) {
         const errBody = await res.json().catch(() => ({}));
@@ -126,6 +134,72 @@ export function ImageSlot({
           </select>
         </label>
       </div>
+
+      {/* Reference images — selalu tampil */}
+      <div className="space-y-1.5">
+          <p className="text-[10px] text-muted-foreground">Referensi untuk AI image — foto produk otomatis dipakai. Tambah referensi background/setting (jangan foto wajah):</p>
+          <textarea
+            value={labelText}
+            onChange={(e) => setLabelText(e.target.value)}
+            placeholder={`Label teks produk (opsional) — contoh: brand name "GlowBooster" top, large bold "7" center, tagline below`}
+            rows={2}
+            maxLength={300}
+            className="w-full text-[11px] border rounded-md px-2 py-1.5 bg-background resize-none placeholder:text-muted-foreground"
+          />
+          <div className="flex items-center gap-2 flex-wrap">
+            {/* Slot 1 — produk otomatis */}
+            {productPreview && (
+              <div className="flex items-center gap-1">
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img src={productPreview} alt="produk" className="w-8 h-8 rounded object-cover border border-primary" title="Referensi produk (otomatis)" />
+                <span className="text-[10px] text-primary">Produk</span>
+              </div>
+            )}
+
+            {/* Slot 2 — opsional */}
+            <div className="flex items-center gap-1">
+              {ref2DataUrl ? (
+                <>
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img src={ref2DataUrl} alt="ref2" className="w-8 h-8 rounded object-cover border border-primary" />
+                  <button type="button" onClick={() => setRef2DataUrl(null)} className="text-muted-foreground hover:text-destructive" title="Hapus"><X className="w-3 h-3" /></button>
+                </>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => ref2FileRef.current?.click()}
+                  className="w-8 h-8 rounded border border-dashed hover:bg-muted flex items-center justify-center text-muted-foreground"
+                  title="Tambah referensi background/setting (jangan foto wajah)"
+                >
+                  <Upload className="w-3 h-3" />
+                </button>
+              )}
+            </div>
+
+            {/* Slot 3 — opsional */}
+            <div className="flex items-center gap-1">
+              {ref3DataUrl ? (
+                <>
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img src={ref3DataUrl} alt="ref3" className="w-8 h-8 rounded object-cover border border-primary" />
+                  <button type="button" onClick={() => setRef3DataUrl(null)} className="text-muted-foreground hover:text-destructive" title="Hapus"><X className="w-3 h-3" /></button>
+                </>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => ref3FileRef.current?.click()}
+                  className="w-8 h-8 rounded border border-dashed hover:bg-muted flex items-center justify-center text-muted-foreground"
+                  title="Tambah referensi ketiga (jangan foto wajah)"
+                >
+                  <Upload className="w-3 h-3" />
+                </button>
+              )}
+            </div>
+
+            <input ref={ref2FileRef} type="file" accept="image/*" className="hidden" onChange={async (e) => { const f = e.target.files?.[0]; if (f) setRef2DataUrl(await fileToDataUrl(f)); e.target.value = ''; }} />
+            <input ref={ref3FileRef} type="file" accept="image/*" className="hidden" onChange={async (e) => { const f = e.target.files?.[0]; if (f) setRef3DataUrl(await fileToDataUrl(f)); e.target.value = ''; }} />
+          </div>
+        </div>
 
       {/* Buttons row */}
       <div className="flex items-center gap-2 text-xs">

@@ -15,11 +15,13 @@ import {
   ChevronRight,
   RefreshCw,
   Sparkles,
+  X,
+  FileText,
 } from 'lucide-react';
 
 interface GenerationItem {
   id: string;
-  status: 'queued' | 'processing' | 'completed' | 'failed';
+  status: 'queued' | 'processing' | 'completed' | 'failed' | 'cancelled' | 'draft';
   progress: number;
   product_identifier: string;
   creative_idea_title?: string;
@@ -36,6 +38,8 @@ const STATUS_CONFIG = {
   processing: { label: 'Proses', variant: 'secondary' as const, icon: Loader2, color: 'text-blue-500', spin: true },
   queued: { label: 'Antrian', variant: 'outline' as const, icon: Clock, color: 'text-yellow-500' },
   failed: { label: 'Gagal', variant: 'destructive' as const, icon: XCircle, color: 'text-red-500' },
+  cancelled: { label: 'Dibatalkan', variant: 'outline' as const, icon: X, color: 'text-muted-foreground' },
+  draft: { label: 'Draft', variant: 'outline' as const, icon: FileText, color: 'text-muted-foreground' },
 };
 
 function formatRelative(dateStr: string): string {
@@ -54,6 +58,7 @@ export function GenerationHistory() {
   const [loading, setLoading] = useState(true);
   const [offset, setOffset] = useState(0);
   const [hasMore, setHasMore] = useState(false);
+  const [cancellingId, setCancellingId] = useState<string | null>(null);
   const LIMIT = 20;
 
   const fetchGenerations = async (reset = false) => {
@@ -85,6 +90,18 @@ export function GenerationHistory() {
     return () => clearInterval(interval);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [items]);
+
+  const handleCancel = async (e: React.MouseEvent, id: string) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setCancellingId(id);
+    try {
+      await fetch(`/api/generations/${id}/cancel`, { method: 'POST' });
+      fetchGenerations(true);
+    } finally {
+      setCancellingId(null);
+    }
+  };
 
   const handleLoadMore = () => {
     const nextOffset = offset + LIMIT;
@@ -190,7 +207,23 @@ export function GenerationHistory() {
                 </div>
               </div>
 
-              <ChevronRight className="w-4 h-4 text-muted-foreground shrink-0 group-hover:text-foreground transition-colors" />
+              <div className="flex items-center gap-1 shrink-0">
+                {isActive && (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="h-6 w-6 p-0 text-muted-foreground hover:text-destructive"
+                    onClick={(e) => handleCancel(e, item.id)}
+                    disabled={cancellingId === item.id}
+                    title="Batalkan"
+                  >
+                    {cancellingId === item.id
+                      ? <Loader2 className="w-3 h-3 animate-spin" />
+                      : <X className="w-3 h-3" />}
+                  </Button>
+                )}
+                <ChevronRight className="w-4 h-4 text-muted-foreground group-hover:text-foreground transition-colors" />
+              </div>
             </div>
           </Link>
         );

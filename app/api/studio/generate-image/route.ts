@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
-import { generateImage } from '@/app/lib/useapi';
+import { generateImage, uploadImageAsset } from '@/app/lib/useapi';
 import { logAssetUsage } from '@/app/lib/monitoring/assetUsage';
 import { GOOGLE_FLOW_CREDIT_COSTS, GOOGLE_FLOW_CREDIT_PRICE_USD } from '@/app/lib/monitoring/creditCosts';
 
@@ -12,6 +12,7 @@ const RequestSchema = z.object({
   model: z.enum(['imagen-4', 'nano-banana-2', 'nano-banana-pro']).optional().default('imagen-4'),
   generationId: z.string().optional(),
   clipIndex: z.number().int().optional(),
+  referenceDataUrls: z.array(z.string()).max(3).optional(),
 });
 
 /**
@@ -49,12 +50,16 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const { prompt, productNotes, styleNotes, aspectRatio, model, generationId, clipIndex } = parsed.data;
+    const { prompt, productNotes, styleNotes, aspectRatio, model, generationId, clipIndex, referenceDataUrls } = parsed.data;
     const cleanedPrompt = stripVideoInstructions(prompt);
-    const parts = [productNotes, styleNotes, cleanedPrompt].filter((s) => s.trim().length > 0);
-    // Anti-duplication + anti-text-overlay cue.
-    // Imagen kadang render: (1) duplikat model/produk identik, (2) text overlay
-    // tambahan (caption, sticker, watermark) di luar label produk asli.
+    const hasReferences = referenceDataUrls && referenceDataUrls.length > 0;
+    // productNotes tidak dikirim ke Imagen — visual produk di-cover oleh reference image atau prompt
+    // Satu-satunya exception: kalau user isi manual label text (dikirim dari ImageSlot sebagai productNotes)
+    // dan ada reference image → kirim sebagai hint label teks saja
+    const productSection = hasReferences && productNotes
+      ? `Product label text: ${productNotes}`
+      : '';
+    const parts = [productSection, styleNotes, cleanedPrompt].filter((s) => s.trim().length > 0);
     const imageConstraintsCue = [
       'IMPORTANT: render exactly ONE person holding ONE product in a single unified scene.',
       'The person and product appear together naturally in one frame (composite is OK).',
@@ -64,10 +69,25 @@ export async function POST(request: NextRequest) {
     const fullPrompt = [...parts, imageConstraintsCue].join('\n\n');
     const imgAspect = aspectRatio === 'portrait' ? '9:16' : '16:9';
 
+    // Upload semua referensi secara paralel, skip yang gagal
+    let referenceImageUrls: string[] | undefined;
+    if (referenceDataUrls && referenceDataUrls.length > 0) {
+      const results = await Promise.allSettled(
+        referenceDataUrls.slice(0, 3).map((dataUrl) => uploadImageAsset(dataUrl))
+      );
+      const uploaded = results
+        .filter((r): r is PromiseFulfilledResult<string> => r.status === 'fulfilled')
+        .map((r) => r.value);
+      if (uploaded.length > 0) referenceImageUrls = uploaded;
+      const failed = results.filter((r) => r.status === 'rejected').length;
+      if (failed > 0) console.warn(`[generate-image] ${failed} referensi gagal diupload, dilanjutkan dengan ${uploaded.length} referensi`);
+    }
+
     const imgRes = await generateImage({
       prompt: fullPrompt,
       aspectRatio: imgAspect,
-      model,
+      model: referenceImageUrls ? (model === 'imagen-4' ? 'nano-banana-2' : model) : model,
+      referenceImageUrls,
     });
 
     if (generationId !== undefined) {

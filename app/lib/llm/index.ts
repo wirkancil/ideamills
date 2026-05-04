@@ -285,9 +285,13 @@ export async function cleanVeoPrompt(
     ],
     { maxTokens: 1500, timeoutMs: 30_000 }
   );
-  const cleaned = (result as string).trim();
+  let cleaned = (result as string).trim();
   if (!cleaned) {
     throw new LLMError('Empty cleaned prompt', 'INVALID_RESPONSE', 'openrouter', 'google/gemini-2.5-flash');
   }
+  // Strip em dash di dalam dialog (antara tanda kutip) — ganti dengan koma
+  cleaned = cleaned.replace(/(lips sync: '[^']*)'|("lips sync:[^"]*")/g, (match) =>
+    match.replace(/\s*—\s*/g, ', ')
+  );
   return cleaned;
 }

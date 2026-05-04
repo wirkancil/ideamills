@@ -28,21 +28,34 @@ export async function POST(request: NextRequest) {
 
     const db = await getDb();
 
-    // Verifikasi clip ada dulu
     const generation = await db.collection('Generations').findOne({ _id: oid });
     if (!generation) {
       return NextResponse.json({ error: 'Generation not found' }, { status: 404 });
     }
-    const clips = (generation.clips ?? []) as Array<{ index: number }>;
-    if (!clips.find((c) => c.index === clipIndex)) {
+    const clips = (generation.clips ?? []) as Array<{ index: unknown }>;
+    if (!clips.find((c) => c.index === clipIndex || c.index === String(clipIndex))) {
       return NextResponse.json({ error: 'Clip not found' }, { status: 404 });
     }
 
-    await db.collection('Generations').updateOne(
+    const result = await db.collection('Generations').updateOne(
       { _id: oid },
       { $set: { 'clips.$[c].veo_prompt': veoPrompt, 'clips.$[c].updated_at': new Date() } },
       { arrayFilters: [{ 'c.index': clipIndex }] }
     );
+
+    if (result.modifiedCount === 0) {
+      const gen = await db.collection('Generations').findOne({ _id: oid });
+      const rawClips = (gen?.clips ?? []) as Array<Record<string, unknown>>;
+      const updatedClips = rawClips.map((c) =>
+        c.index === clipIndex || c.index === String(clipIndex)
+          ? { ...c, veo_prompt: veoPrompt, updated_at: new Date() }
+          : c
+      );
+      await db.collection('Generations').updateOne(
+        { _id: oid },
+        { $set: { clips: updatedClips } }
+      );
+    }
 
     return NextResponse.json({ ok: true });
   } catch (error) {

@@ -2,13 +2,13 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { ArrowLeft } from 'lucide-react';
+import { ArrowLeft, Download, Loader2, Merge, X } from 'lucide-react';
 import { Button } from '@/app/components/ui/button';
 import { Card, CardContent } from '@/app/components/ui/card';
 import { Progress } from '@/app/components/ui/progress';
 import { ClipResults } from './ClipResults';
 import { LegacyFallback } from './LegacyFallback';
-import type { Clip, GenerationStatus } from '@/app/lib/types';
+import type { Clip, GenerationStatus, ConcatenatedVideo } from '@/app/lib/types';
 
 const POLL_INTERVAL_MS = 5000;
 
@@ -28,7 +28,9 @@ interface GenerationApiResponse {
   creativeIdeaTitle?: string | null;
   productNotes?: string;
   styleNotes?: string;
+  voiceProfile?: string;
   clips?: Clip[];
+  concatenated_videos?: ConcatenatedVideo[];
 }
 
 const ACTIVE_STATUSES = new Set<GenerationStatus['status']>(['queued', 'running', 'processing']);
@@ -40,6 +42,50 @@ export function GenerationView({ generationId }: GenerationViewProps) {
   const [notFound, setNotFound] = useState(false);
   const [networkError, setNetworkError] = useState<string | null>(null);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const [concatMode, setConcatMode] = useState(false);
+  const [selectedForConcat, setSelectedForConcat] = useState<number[]>([]);
+  const [concatenating, setConcatenating] = useState(false);
+  const [cancelling, setCancelling] = useState(false);
+
+  const handleCancel = async () => {
+    if (!confirm('Batalkan generation ini?')) return;
+    setCancelling(true);
+    try {
+      await fetch(`/api/generations/${generationId}/cancel`, { method: 'POST' });
+      fetchGeneration();
+    } finally {
+      setCancelling(false);
+    }
+  };
+
+  const toggleConcatSelect = (clipIndex: number) => {
+    setSelectedForConcat((prev) =>
+      prev.includes(clipIndex) ? prev.filter((i) => i !== clipIndex) : [...prev, clipIndex]
+    );
+  };
+
+  const handleConcatenate = async () => {
+    if (selectedForConcat.length < 2) return;
+    setConcatenating(true);
+    try {
+      const res = await fetch('/api/studio/concatenate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ generationId, clipIndices: selectedForConcat }),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.error ?? 'Gagal concatenate');
+      }
+      setConcatMode(false);
+      setSelectedForConcat([]);
+      fetchGeneration();
+    } catch (err) {
+      alert(err instanceof Error ? err.message : 'Gagal menggabungkan video');
+    } finally {
+      setConcatenating(false);
+    }
+  };
 
   const fetchGeneration = useCallback(async () => {
     try {
@@ -161,14 +207,45 @@ export function GenerationView({ generationId }: GenerationViewProps) {
 
       <div className="space-y-1">
         <h1 className="text-2xl font-bold">{generation.creativeIdeaTitle ?? 'Generation'}</h1>
-        <p className="text-sm text-muted-foreground">
-          {new Date(generation.createdAt).toLocaleDateString('id-ID', {
-            day: 'numeric',
-            month: 'short',
-            year: 'numeric',
-          })}{' '}
-          • {(generation.clips ?? []).length} clip
-        </p>
+        <div className="flex items-center justify-between flex-wrap gap-2">
+          <p className="text-sm text-muted-foreground">
+            {new Date(generation.createdAt).toLocaleDateString('id-ID', {
+              day: 'numeric',
+              month: 'short',
+              year: 'numeric',
+            })}{' '}
+            • {(generation.clips ?? []).length} clip
+          </p>
+          {(generation.clips ?? []).filter((c) => c.video_status === 'done').length >= 2 && !concatMode && (
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => { setConcatMode(true); setSelectedForConcat([]); }}
+            >
+              <Merge className="w-3.5 h-3.5 mr-1.5" />
+              Gabungkan Clips
+            </Button>
+          )}
+          {concatMode && (
+            <div className="flex items-center gap-2">
+              <span className="text-sm text-muted-foreground">{selectedForConcat.length} dipilih</span>
+              <Button size="sm" variant="ghost" onClick={() => { setConcatMode(false); setSelectedForConcat([]); }}>
+                Batal
+              </Button>
+              <Button
+                size="sm"
+                disabled={selectedForConcat.length < 2 || concatenating}
+                onClick={handleConcatenate}
+              >
+                {concatenating ? (
+                  <><Loader2 className="w-3.5 h-3.5 mr-1.5 animate-spin" /> Menggabungkan...</>
+                ) : (
+                  'Gabungkan'
+                )}
+              </Button>
+            </div>
+          )}
+        </div>
       </div>
 
       {ACTIVE_STATUSES.has(generation.status) && (
@@ -176,7 +253,19 @@ export function GenerationView({ generationId }: GenerationViewProps) {
           <CardContent className="p-4 space-y-2">
             <div className="flex items-center justify-between text-sm">
               <span>{generation.progressLabel ?? 'Memproses...'}</span>
-              <span>{generation.progress}%</span>
+              <div className="flex items-center gap-3">
+                <span>{generation.progress}%</span>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  className="h-6 px-2 text-xs text-muted-foreground hover:text-destructive"
+                  onClick={handleCancel}
+                  disabled={cancelling}
+                >
+                  {cancelling ? <Loader2 className="w-3 h-3 animate-spin" /> : <X className="w-3 h-3" />}
+                  Batalkan
+                </Button>
+              </div>
             </div>
             <Progress value={generation.progress} />
           </CardContent>
@@ -188,8 +277,51 @@ export function GenerationView({ generationId }: GenerationViewProps) {
         clips={generation.clips ?? []}
         productNotes={generation.productNotes ?? ''}
         styleNotes={generation.styleNotes ?? ''}
+        voiceProfile={generation.voiceProfile ?? ''}
         onClipUpdated={fetchGeneration}
+        concatMode={concatMode}
+        selectedForConcat={selectedForConcat}
+        onToggleConcatSelect={toggleConcatSelect}
       />
+
+      {(generation.concatenated_videos ?? []).length > 0 && (
+        <div className="space-y-3">
+          <h2 className="text-base font-semibold">Video Gabungan</h2>
+          {(generation.concatenated_videos ?? []).map((cv) => (
+            <Card key={cv.id}>
+              <CardContent className="p-4 space-y-3">
+                <div className="flex items-center justify-between">
+                  <span className="text-sm font-medium">
+                    Video Gabungan ({cv.clip_indices.length} clips)
+                  </span>
+                  <span className={`text-xs px-2 py-0.5 rounded-full ${
+                    cv.status === 'done'
+                      ? 'bg-green-500/10 text-green-700'
+                      : cv.status === 'failed'
+                      ? 'bg-destructive/10 text-destructive'
+                      : 'bg-primary/10 text-primary'
+                  }`}>
+                    {cv.status === 'done' ? 'Selesai' : cv.status === 'failed' ? 'Gagal' : 'Processing'}
+                  </span>
+                </div>
+                {cv.status === 'done' && cv.local_path && (
+                  <div className="space-y-2">
+                    <video src={cv.local_path} controls className="w-full rounded-lg bg-muted aspect-video" />
+                    <Button asChild size="sm" variant="outline">
+                      <a href={cv.local_path} download>
+                        <Download className="w-3.5 h-3.5 mr-1.5" /> Download
+                      </a>
+                    </Button>
+                  </div>
+                )}
+                {cv.status === 'failed' && cv.error && (
+                  <p className="text-xs text-destructive">{cv.error}</p>
+                )}
+              </CardContent>
+            </Card>
+          ))}
+        </div>
+      )}
     </div>
   );
 }

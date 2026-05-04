@@ -5,12 +5,14 @@ dotenv.config({ path: path.join(process.cwd(), '.env.local') });
 
 import { WORKER_CONCURRENCY } from '../app/lib/workerConfig';
 
-const POLL_INTERVAL_MS = 2000;
+const POLL_INTERVAL_ACTIVE_MS = 2000;   // queue ada job
+const POLL_INTERVAL_IDLE_MS = 15000;    // queue kosong
 const STUCK_RECOVERY_INTERVAL_MS = 5 * 60 * 1000;
 
 const WORKER_ID = `${os.hostname()}:${process.pid}`;
 
 let activeJobs = 0;
+let shuttingDown = false;
 
 async function bootstrap() {
   const { dequeueJob, completeJob, failJob, getPendingJobCount, recoverStuckJobs } =
@@ -19,7 +21,7 @@ async function bootstrap() {
   const { recordCompletion } = await import('../app/lib/workerStats');
 
   async function processJob() {
-    if (activeJobs >= WORKER_CONCURRENCY) return;
+    if (shuttingDown || activeJobs >= WORKER_CONCURRENCY) return;
 
     const job = await dequeueJob(WORKER_ID);
     if (!job) return;
@@ -56,12 +58,36 @@ async function bootstrap() {
     }
   }, STUCK_RECOVERY_INTERVAL_MS);
 
+  // Graceful shutdown — tunggu job aktif selesai sebelum exit
+  const shutdown = () => {
+    if (shuttingDown) return;
+    shuttingDown = true;
+    console.log(`[Worker] Shutting down — waiting for ${activeJobs} active job(s)...`);
+    const checkDone = setInterval(() => {
+      if (activeJobs === 0) {
+        clearInterval(checkDone);
+        console.log('[Worker] All jobs done, exiting.');
+        process.exit(0);
+      }
+    }, 1000);
+    // Force-exit setelah 35 menit (max job duration untuk 3-clip chain)
+    setTimeout(() => { console.error('[Worker] Forced shutdown after timeout'); process.exit(1); }, 35 * 60 * 1000);
+  };
+  process.on('SIGTERM', shutdown);
+  process.on('SIGINT', shutdown);
+
+  // Catch unhandled rejections agar tidak crash process
+  process.on('unhandledRejection', (reason) => {
+    console.error('[Worker] Unhandled rejection:', reason);
+  });
+
   async function workerLoop() {
     console.log(`[Worker] ${WORKER_ID} started — concurrency: ${WORKER_CONCURRENCY}`);
 
-    while (true) {
+    while (!shuttingDown) {
+      let pending = 0;
       try {
-        const pending = await getPendingJobCount();
+        pending = await getPendingJobCount();
         if (pending > 0) {
           const slots = WORKER_CONCURRENCY - activeJobs;
           for (let i = 0; i < slots; i++) {
@@ -72,7 +98,8 @@ async function bootstrap() {
         console.error('[Worker] Loop error:', error);
       }
 
-      await new Promise((resolve) => setTimeout(resolve, POLL_INTERVAL_MS));
+      const interval = (pending > 0 || activeJobs > 0) ? POLL_INTERVAL_ACTIVE_MS : POLL_INTERVAL_IDLE_MS;
+      await new Promise((resolve) => setTimeout(resolve, interval));
     }
   }
 

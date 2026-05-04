@@ -23,6 +23,7 @@ const RequestSchema = z.object({
   generationId: z.string().min(1),
   productNotes: z.string().max(2000).default(''),
   styleNotes: z.string().max(2000).default(''),
+  voiceProfile: z.string().max(500).default(''),
   clips: z.array(ClipDraftSchema).min(1).max(6),
 });
 
@@ -37,7 +38,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const { generationId, productNotes, styleNotes, clips: clipDrafts } = parsed.data;
+    const { generationId, productNotes, styleNotes, voiceProfile, clips: clipDrafts } = parsed.data;
     let oid: ObjectId;
     try {
       oid = new ObjectId(generationId);
@@ -87,6 +88,7 @@ export async function POST(request: NextRequest) {
         $set: {
           productNotes,
           styleNotes,
+          voice_profile: voiceProfile,
           clips,
           status: 'queued',
           progress: 0,

@@ -52,6 +52,7 @@ export async function POST(request: NextRequest) {
       if (c.index !== clipIndex) return c;
       // Reset veo_prompt hanya jika prompt berubah — jika sama, preserve hasil edit user
       const promptChanged = c.prompt !== prompt;
+      const preservedVeoPrompt = promptChanged ? null : (c.veo_prompt ?? null);
       return {
         ...c,
         prompt,
@@ -65,7 +66,7 @@ export async function POST(request: NextRequest) {
         video_error: null,
         media_generation_id: null,
         video_job_id: null,
-        veo_prompt: promptChanged ? null : (c.veo_prompt ?? null),
+        veo_prompt: preservedVeoPrompt,
         updated_at: now,
       };
     });

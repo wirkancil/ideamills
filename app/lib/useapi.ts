@@ -19,6 +19,7 @@ export interface VideoJob {
   jobId: string;
   status: 'created' | 'started' | 'completed' | 'failed';
   videoUrl?: string;
+  mediaGenerationId?: string;
   error?: string;
 }
 
@@ -117,6 +118,7 @@ interface RawJobResponse {
     media?: Array<{
       videoUrl?: string;
       thumbnailUrl?: string;
+      mediaGenerationId?: string;
     }>;
   };
   error?: string;
@@ -125,10 +127,12 @@ interface RawJobResponse {
 export async function pollVideoJob(jobId: string): Promise<VideoJob> {
   const result = await jsonRequest<RawJobResponse>('GET', `/google-flow/jobs/${jobId}`);
   const videoUrl = result.response?.media?.[0]?.videoUrl;
+  const mediaGenerationId = result.response?.media?.[0]?.mediaGenerationId;
   return {
     jobId: result.jobid,
     status: result.status as VideoJob['status'],
     videoUrl,
+    mediaGenerationId,
     error: result.error,
   };
 }
@@ -160,6 +164,7 @@ export interface ImageGenerateOptions {
   aspectRatio?: '16:9' | '4:3' | '1:1' | '3:4' | '9:16';
   count?: 1 | 2 | 3 | 4;
   email?: string;
+  referenceImageUrls?: string[]; // mediaGenerationIds, max 10 untuk nano-banana, max 3 untuk imagen-4
 }
 
 export interface ImageGenerateResult {
@@ -188,6 +193,10 @@ export async function generateImage(opts: ImageGenerateOptions): Promise<ImageGe
   const userEmail = opts.email ?? process.env.USEAPI_GOOGLE_EMAIL;
   if (!userEmail) throw new Error('USEAPI_GOOGLE_EMAIL not set');
 
+  const refs = opts.referenceImageUrls ?? [];
+  const referenceFields: Record<string, string> = {};
+  refs.slice(0, 10).forEach((id, i) => { referenceFields[`reference_${i + 1}`] = id; });
+
   const result = await jsonRequest<RawImageResponse>(
     'POST',
     '/google-flow/images',
@@ -197,6 +206,7 @@ export async function generateImage(opts: ImageGenerateOptions): Promise<ImageGe
       model: opts.model ?? 'imagen-4',
       aspectRatio: opts.aspectRatio ?? '16:9',
       count: opts.count ?? 1,
+      ...referenceFields,
     }
   );
 
@@ -212,6 +222,46 @@ export async function generateImage(opts: ImageGenerateOptions): Promise<ImageGe
     imageUrl,
     mediaGenerationId,
   };
+}
+
+export interface ExtendVideoOptions {
+  mediaGenerationId: string;
+  prompt: string;
+  model?: string;
+  email?: string;
+}
+
+export async function extendVideo(opts: ExtendVideoOptions): Promise<string> {
+  const result = await jsonRequest<{ jobid: string }>(
+    'POST',
+    '/google-flow/videos/extend',
+    {
+      mediaGenerationId: opts.mediaGenerationId,
+      prompt: opts.prompt,
+      model: opts.model ?? 'veo-3.1-fast',
+      async: true,
+    }
+  );
+  return result.jobid;
+}
+
+export interface ConcatenateMediaItem {
+  mediaGenerationId: string;
+  trimStart?: number;
+}
+
+export interface ConcatenateResult {
+  jobId: string;
+  encodedVideo: string;
+}
+
+export async function concatenateVideos(media: ConcatenateMediaItem[]): Promise<ConcatenateResult> {
+  const result = await jsonRequest<ConcatenateResult>(
+    'POST',
+    '/google-flow/videos/concatenate',
+    { media }
+  );
+  return result;
 }
 
 function sleep(ms: number): Promise<void> {

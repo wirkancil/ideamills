@@ -95,7 +95,7 @@ export const IDEAS_USER = (productAnalysis: unknown, modelAnalysis: unknown, bri
 MODEL: ${JSON.stringify(modelAnalysis)}
 BRIEF: "${brief || '(tidak ada)'}"
 
-Generate 3 ide iklan video 30 detik untuk produk ini, masing-masing dari ARCHETYPE BERBEDA agar coverage kreatif maksimal.
+Generate 3 ide iklan video untuk produk ini, masing-masing dari ARCHETYPE BERBEDA agar coverage kreatif maksimal.
 
 ARCHETYPE FRAMEWORK — gunakan SECARA INTERNAL untuk reasoning & variety, JANGAN return field-nya di JSON output:
 - A. Problem→Solution: tunjukan pain point user, lalu produk sebagai jawaban.
@@ -107,11 +107,11 @@ ARCHETYPE FRAMEWORK — gunakan SECARA INTERNAL untuk reasoning & variety, JANGA
 
 Setiap ide harus:
 - title: singkat menarik (max 60 char)
-- content: 1 paragraf naratif (60-200 kata) yang sudah include:
-  * Konteks visual (model, setting, vibe)
-  * Storyline ringkas (apa yang terjadi di video)
-  * Tone & mood
-  * Why it works untuk target audience Indonesia (vernacular, cultural fit)
+- content: TEPAT 2-3 kalimat (max 50 kata). WAJIB include:
+  * Setting/lokasi spesifik (contoh: "kamar mandi", "ruang tamu", "depan cermin")
+  * Aksi kunci model — HANYA 1 aksi fisik sederhana: memegang produk, mengangkat produk ke kamera, atau gestur tangan ringan. DILARANG menyebut: menuang, mengoleskan, mengusapkan, mengaplikasikan, menepuk ke wajah/kulit — aksi-aksi ini menyebabkan glitch di video generation.
+  * Tone/vibe dan hook emosionalnya
+  JANGAN tambah penjelasan "why it works" atau analisis — cukup deskripsi vivid iklannya.
 
 ATURAN VARIETY (wajib):
 - Pilih 3 archetype berbeda dari daftar di atas SECARA INTERNAL sebelum tulis ide. Jangan 3-3-nya testimonial atau 3-3-nya problem→solution.
@@ -134,6 +134,18 @@ MODEL: ${JSON.stringify(modelAnalysis)}
 IDE TERPILIH:
   Title: "${selectedIdea.title}"
   Content: ${selectedIdea.content}
+
+ATURAN KONSISTENSI IDE (wajib):
+- Setting/lokasi yang disebutkan di IDE harus PERSIS digunakan di clip dan styleNotes. JANGAN ganti setting tanpa alasan.
+- Tone dan vibe di IDE harus terefleksi di styleNotes dan clip prompt.
+- Kalau IDE menyebut "dapur", styleNotes harus "dapur" bukan "living room".
+
+ATURAN ADAPTASI IDE KE CLIP (kritis):
+- IDE TERPILIH adalah INSPIRASI NARATIF, bukan instruksi literal. Jangan terjemahkan setiap aksi di idea.content menjadi aksi di clip.
+- Kalau ide menyebut "menuangkan tetes lalu mengoleskan ke wajah" → gunakan PEGANG PRODUK SAJA — tangan settled dengan produk visible, ekspresi dan dialog menyampaikan manfaatnya.
+- DILARANG render aksi apply/oleskan produk ke wajah/kulit secara fisik — Veo selalu glitch untuk gerakan tangan-ke-wajah yang detail. Ganti dengan: model memegang produk dekat wajah/dada, ekspresi puas, dialog yang menyampaikan hasilnya.
+- Pilih aksi PALING REPRESENTATIF dari ide, yang paling aman dan kuat secara visual untuk 8 detik.
+- Sisa narasi yang tidak muat dalam 1 clip → tuangkan ke dialog/ekspresi, bukan aksi fisik tambahan.
 
 Tugas:
 
@@ -182,7 +194,8 @@ Tugas:
      - Hindari: "TikTok creator", "Gen Z creator", "viral creator", "influencer" (kata-kata ini trigger Imagen filter PROMINENT_PEOPLE)
    - DESKRIPSI FISIK WAJAH — jika ada foto model, JANGAN sebutkan ciri fisik spesifik wajah:
      - Hindari: warna/gaya rambut, warna/tekstur kulit, bentuk wajah, fitur wajah spesifik (contoh: "berambut pendek hitam", "kulit sawo matang", "berwajah oval")
-     - Boleh: deskripsi demografis generik ("Indonesian woman, aged 25-35"), pakaian, aksesori benda (kacamata, jam tangan, hijab), pose, dan suasana
+     - Boleh: deskripsi demografis generik ("Indonesian woman, aged 25-35"), pakaian (warna/style baju), hijab (ya/tidak), pose, dan suasana
+     - JANGAN sebut aksesori spesifik yang tidak terlihat jelas di foto (kacamata, jam tangan, kalung, anting, gelang) — Veo akan menambahkan aksesori tersebut walau tidak ada di foto asli
      - Alasan: deskripsi fisik wajah spesifik trigger Google PROMINENT_PEOPLE filter dan menyebabkan upload error 400
    - Tone OK: "warm conversational", "genuine review", "homely casual"
    - JANGAN minta caption/subtitle/text overlay/title-card di styleNotes — frame harus clean tanpa text rendered di atasnya (lihat ATURAN NO TEXT OVERLAY di section clip prompt).
@@ -192,45 +205,63 @@ Tugas:
 
 3. Tulis SATU "clip" prompt untuk video iklan 8 detik.
 
-   PRINSIP UTAMA — VIDEO 8 DETIK:
-   Veo bisa render natural micro-expression (glance, smile, laugh, blink, head tilt, lip
-   movement) dalam 1 take 8 detik. Yang TIDAK muat: rangkaian MAJOR ACTION yang ubah
-   posisi/situasi besar (duduk → berdiri → jalan → bending). Pilih 1-2 major action
-   + banyak micro-expression untuk feel natural.
+   PRINSIP UTAMA — BUDGET 8 DETIK (wajib dipahami sebelum nulis):
+   8 detik terbagi menjadi 4 slot — semuanya harus muat:
+   - Slot 1 (~1-2 dtk): pose awal / setup visual
+   - Slot 2 (~2 dtk): MAKSIMAL 1 major action (pegang produk, dll) — OPSIONAL, bisa dilewati
+   - Slot 3 (~3-4 dtk): dialog + lipsync (makin panjang dialog, makin penuh slot ini)
+   - Slot 4 (~1 dtk): still hold
+   TOTAL = 8 detik HABIS. Kalau ada 2 major action, slot 2 makan 4 detik → dialog terpotong atau still hold hilang.
+   REKOMENDASI TERBAIK untuk ide emosional/testimonial: 0 major action + dialog panjang 12-18 kata. Lipsync panjang mengisi slot 2+3 sekaligus → video penuh 8 detik tanpa risiko glitch.
 
    TARGET PANJANG CLIP PROMPT: max 2000 karakter. Hindari deskripsi yang berulang.
 
    WAJIB dalam prompt:
    a. Model berbicara langsung ke kamera — sertakan SATU dialog Bahasa Indonesia, ditulis inline sebagai: model berbicara: "[dialog]"
-      ATURAN KETAT DIALOG (untuk video 8 detik):
+      ATURAN KETAT DIALOG:
       - HANYA SATU dialog dalam seluruh prompt. JANGAN tulis "model berbicara: ..." dua kali atau lebih.
-      - Dialog MAKSIMAL 15 kata total, boleh 1-3 kalimat pendek. HITUNG KATA SEBELUM TULIS — ini wajib. Lebih dari 15 kata = video terpotong dan lipsync rusak.
-      - ✗ CONTOH TERLALU PANJANG (27 kata): "Setelah pakai batik ini, percaya diri itu langsung naik. Ini bukan cuma tentang baju, tapi tentang bagaimana kita merasa." — terlalu panjang.
-      - ✓ VERSI BENAR 1 kalimat (8 kata): "Setelah pakai batik ini, percaya diri langsung naik."
-      - ✓ VERSI BENAR 3 kalimat (14 kata): "Batiknya nyaman. Tampilannya rapi. Cocok buat hari-hari penting."
-      - 1-2 kalimat pendek saja, hindari kalimat majemuk panjang dengan banyak klausa.
-      - Pilih hook punchy yang relevan dengan ide. Contoh OK (15 kata atau kurang):
-        ✓ "Aku akhirnya nemu serum yang bikin kulitku auto glowing dari pemakaian pertama!" (12 kata)
-        ✓ "Cobain produk ini, kulitku jadi cerah natural tiap hari." (9 kata)
-        ✗ "Udah coba macam-macam serum tapi belum nemu yang pas? Sini merapat, aku kasih tau pengalaman aku pakai produk ini!" (20 kata, terlalu panjang)
-      - CATATAN: kata-kata negatif ("tanpa", "nggak", "bukan") BOLEH muncul di dalam dialog — itu ucapan natural manusia. Larangan negation di poin DILARANG di bawah hanya berlaku untuk deskripsi visual/scene.
-      - Lebih dari 15 kata atau lebih dari 1 dialog block = video akan terpotong.
+      - Kalau ada 1 major action: dialog MAKSIMAL 8 kata. Lebih = video terpotong.
+      - Kalau tidak ada major action (pose statis saja): dialog WAJIB 14-18 kata — ini mengisi ~4 detik lipsync dan membuat video penuh 8 detik. JANGAN tulis dialog di bawah 14 kata untuk pose statis.
+      - STRATEGI: untuk ide yang heavy di cerita/emosi (testimoni, problem→solution), PILIH pose statis + dialog panjang daripada aksi + dialog pendek. Dialog panjang + micro-expression lebih kuat dan lebih aman dari glitch.
+      - POSE STATIS artinya model SUDAH berada di posisinya sejak frame pertama — tidak ada gerakan masuk, tidak ada "mendekati cermin", tidak ada "bangun dari tempat tidur", tidak ada "berjalan ke". Model langsung settled dan bicara.
+      - HITUNG KATA SEBELUM TULIS — ini wajib. Target 14-18 kata untuk pose statis.
+      - ✗ CONTOH TERLALU PENDEK pose statis (10 kata): "Rekan kerja pada kepo rahasia glowing aku? Ya ini!" — tambah.
+      - ✗ CONTOH TERLALU PANJANG saat ada major action (11 kata): "Ternyata cuma butuh 1 menit pakai 7 Active Ingredients ini!" — potong.
+      - ✓ VERSI BENAR ada major action (6 kata): "7 bahan aktif, hasilnya langsung keliatan!"
+      - ✓ VERSI BENAR pose statis (16 kata): "Rekan kerja pada kepo rahasia glowing aku, jujur cuma rutin pakai GlowBooster ini tiap pagi!"
+      - ✓ VERSI BENAR pose statis (15 kata): "Jujur, capek kerja emang bikin muka kusam, tapi ini yang selalu bikin aku tetap glowing."
+      - Untuk pose statis: tulis 1-2 klausa natural yang mengalir, bukan kalimat super singkat.
+      - JANGAN pakai tanda em dash (—) di dalam dialog — ganti dengan koma atau titik. Em dash terbaca aneh oleh TTS.
+      - CATATAN: kata-kata negatif ("tanpa", "nggak", "bukan") BOLEH muncul di dalam dialog — itu ucapan natural manusia.
    b. Lipsync eksplisit: tulis "model berbicara langsung ke kamera, bibir bergerak sinkron dengan ucapan"
    c. Kamera statis
    d. Single take
    e. Clean frame
 
    ATURAN AKSI (untuk muat dan natural di 8 detik):
-   - MAKSIMAL 2 MAJOR ACTION (perubahan posisi/situasi besar). Lebih dari 2 = glitch, artifact, atau aksi terakhir TIDAK dirender sama sekali.
-   - MICRO-EXPRESSION DIIZINKAN dan dianjurkan untuk feel natural: glance, smile, blink, laugh, lip movement, head tilt, eye contact, slight nod, eyebrow raise. Veo handle ini dengan baik dalam 8 detik.
-   - JANGAN gabungkan: pegang objek + lirik jendela + menoleh + senyum + mata berbinar + berbicara dalam 1 prompt — ini terlalu banyak dan PASTI glitch.
-   - Contoh OK (1 major action + micro-expression + dialog pendek):
-     ✓ "Model pria duduk di kursi ruang kerjanya, menoleh ke kamera dengan senyum hangat. Model berbicara langsung ke kamera, bibir bergerak sinkron dengan ucapan: 'Setelah pakai batik ini, percaya diri langsung naik.' Kamera statis, single take, clean frame."
-     ✓ "model holds product near face (action 1), smiles warmly with playful glance, speaks to camera with natural micro-expressions, lifts product slightly toward camera at end (action 2)"
-   - Contoh TIDAK OK (3+ major action — hasil PASTI glitch):
-     ✗ "model duduk sambil pegang cangkir, ekspresi berpikir keras, melirik ke luar jendela, menoleh kembali ke kamera, senyum, mata berbinar, lalu berbicara" (7 aksi = glitch parah)
-     ✗ "model duduk di sofa, lalu berdiri, lalu walk to mirror, lalu bend over to grab bottle, lalu speak"
-     ✗ "model holds product, then puts it down, then picks up another product, then speaks, then lifts again"
+   - MAKSIMAL 1 MAJOR ACTION kalau ada dialog. MAKSIMAL 2 kalau tidak ada dialog.
+   - MAJOR ACTION = perubahan posisi/situasi besar: apply ke wajah/kulit, mengusap wajah/pipi, angkat/turunkan tangan, menoleh, berdiri, duduk, mengangguk, berjalan/mendekati objek, bangun dari tempat tidur, bergerak menuju sesuatu.
+   - DILARANG KERAS: render aksi apply/oleskan produk ke wajah secara fisik (mengoleskan serum, menepuk krim, menuang ke telapak tangan lalu usap) — Veo SELALU glitch untuk gerakan tangan-ke-wajah yang detail. Ganti dengan pose memegang produk settled.
+   - "Mengaplikasikan serum" + "mengusapkannya" = 2 MAJOR ACTION + glitch — DILARANG.
+   - MICRO-EXPRESSION DIIZINKAN: senyum, blink, eye contact, eyebrow raise, lip movement.
+   - Dialog terjadi DALAM POSE YANG SUDAH SETTLED — model sudah menghadap kamera sejak awal, lalu berbicara. JANGAN tulis aksi baru setelah dialog kecuali settled hold.
+   - PRODUK TIDAK BOLEH BERPINDAH TANGAN atau menghilang dari frame selama clip.
+
+   CEK WAJIB SEBELUM OUTPUT — hitung major action di draft:
+   - Kalau ada dialog + lebih dari 1 major action → HAPUS aksi berlebih sampai tersisa 1.
+   - Kalau tidak ada dialog + lebih dari 2 major action → HAPUS sampai tersisa 2.
+
+   Contoh TERBAIK (pose statis + dialog panjang 16 kata, 0 major action — untuk ide emosional/testimonial):
+   ✓ "Model sudah duduk di depan cermin kamar, memegang botol serum di tangan kanan near her chest (SETTLED DARI FRAME PERTAMA — tidak ada gerakan masuk, tidak ada mendekati cermin, tidak ada bangun). Tersenyum tulus ke kamera, berbicara langsung: 'Jujur, capek kerja emang bikin muka kusam, tapi ini yang selalu bikin aku tetap glowing tiap hari.' Holds bottle settled, no movement. Kamera statis, single take, clean frame."
+   ← Dialog 16 kata → lipsync penuh ~4 detik → total video penuh 8 detik. Tidak ada major action = tidak ada risiko glitch.
+
+   Contoh OK (1 major action + dialog 6 kata — untuk ide yang butuh aksi visual):
+   ✓ "Model duduk di sofa, mengangkat botol serum ke arah kamera (action 1). Tersenyum, berbicara langsung: 'Kulit glowing dalam 7 hari!' Holds bottle settled. Kamera statis, single take, clean frame."
+
+   Contoh TIDAK OK:
+   ✗ "memegang botol (1), mengaplikasikan serum ke pipi (2), mengusapkannya (3), lalu berbicara" → 3 major action = glitch parah
+   ✗ "applies drop to cheek (1), looks at camera (2), speaks" → 2 action + dialog = terpotong
+   ✗ "model duduk, lalu berdiri, lalu walk to mirror, lalu berbicara" → 3 action = glitch
 
    ${VEO_VISUAL_FORBIDDEN}
 
@@ -293,16 +324,20 @@ LANGKAH WAJIB SEBELUM NULIS (reason internally, jangan di-output):
 3. Extend DIMULAI dari state itu — JANGAN ulangi aksi terakhir yang sama
 4. Tentukan posisi narrative arc sekarang (problem/intro/solution/payoff) → extend harus advance ke tahap berikutnya
 5. Tulis draft dialog → HITUNG KATA → kalau lebih dari 12 kata, potong sampai ≤12 kata
-6. Hitung major action di draft → kalau lebih dari 2, hapus aksi yang paling tidak penting
+6. Hitung major action di draft → target 1, maksimal 2. Mengangguk = major action. Kalau lebih dari 1, hapus yang paling tidak penting sampai tersisa 1.
 
 ATURAN KETAT — ACTION:
-- MAKSIMAL 2 MAJOR ACTION total. Lebih dari 2 = glitch/artifact di video.
-- MAJOR ACTION = perubahan posisi atau situasi besar: pegang produk, angkat tangan, berdiri, duduk, menoleh, mengusap wajah.
-- BUKAN major action: senyum, mengangguk, micro-expression, eye contact — ini boleh bebas.
-- CONTOH SALAH (3 major action → glitch): "mendorong botol ke kamera, menurunkan botol, lalu mengusap pipi"
-- CONTOH BENAR (1 major action): "mengangkat produk ke arah kamera dengan senyum puas"
-- CONTOH BENAR (2 major action): "mengambil produk, lalu menunjukkannya ke kamera"
+- MAKSIMAL 1-2 MAJOR ACTION total. Untuk extend, target 1 major action saja agar cukup waktu render bersih.
+- MAJOR ACTION = perubahan posisi/situasi besar yang butuh gerakan tubuh: angkat/turunkan tangan, berdiri, duduk, menoleh, memiringkan kepala, mengusap wajah, mendorong objek ke kamera, berjalan/mendekati objek, bergerak menuju sesuatu.
+- MENGANGGUK = MAJOR ACTION. Jangan anggap mengangguk sebagai micro-expression — Veo render ini sebagai gerakan kepala penuh yang makan frame.
+- DILARANG KERAS: aksi apply/oleskan produk ke wajah secara fisik (mengoleskan serum, menepuk krim, mengusap ke pipi) — Veo selalu glitch untuk gerakan tangan-ke-wajah detail. Ganti dengan pose memegang produk dekat wajah, settled.
+- BUKAN major action (bebas dipakai): senyum, kedip, eye contact, sedikit naik turun alis, bibir bergerak, ekspresi wajah minor.
+- CONTOH SALAH (3 major action → glitch): "mengangguk pelan, lalu menurunkan tangan, lalu memiringkan kepala"
+- CONTOH SALAH (2 major action terlalu padat untuk extend): "menurunkan produk, lalu menoleh ke samping"
+- CONTOH BENAR (1 major action + dialog + hold): "holds product near chest, settled, smiles warmly at camera, speaks: '[dialog]'. Ends with 1-second still hold..."
 - JANGAN ulangi aksi terakhir source clip di awal extend — mulai dari state setelah aksi itu selesai
+- PRODUK TIDAK BOLEH BERPINDAH TANGAN atau menghilang dari frame. Kalau source clip model pegang produk di tangan kanan, extend harus tetap tangan kanan. JANGAN tulis aksi yang implisit memindahkan produk (contoh: "mengusap wajah" saat tangan sedang pegang produk = produk harus diletakkan dulu → hidden product).
+- Kalau model perlu gesture dengan tangan yang sedang pegang produk, tulis produk tetap terlihat: "holds product in right hand near chest" bukan aksi yang membuat produk keluar frame.
 
 ATURAN KETAT — NARRATIVE:
 - Extend HARUS advance arc, bukan ulangi atau abaikan.
@@ -311,10 +346,13 @@ ATURAN KETAT — NARRATIVE:
 - Dialog HARUS sejalan dengan posisi arc: jangan ulangi problem kalau arc sudah di solution.
 
 ATURAN KETAT — FORMAT:
-- 1 paragraf, max 80 kata.
+- 1 paragraf, 60-100 kata. JANGAN terlalu pendek — prompt pendek = video 5-6 detik bukan 8 detik. Sertakan micro-expression dan detail visual yang cukup agar Veo render 8 detik penuh.
 - Model, setting, lighting KONSISTEN dengan source clip — jangan deskripsikan ulang, cukup lanjutkan aksi.
 - BOLEH 1 dialog Bahasa Indonesia (max 12 kata) untuk lipsync natural.
-- WAJIB akhiri dengan 1 detik still hold: "Ends with 1-second still hold, model smiling at camera, no movement, no speech." — tulis ini sebagai kalimat terakhir sebelum "Static camera, single take, clean frame."
+- WAJIB akhiri dengan 1 detik still hold: "Ends with 1-second still hold, model in settled pose, smiling at camera, no movement, no speech. Static camera, single take, clean frame."
+- KRITIS — aksi tepat sebelum still hold harus POSE STATIS yang sudah settled, BUKAN aksi dinamis bergerak.
+  SALAH: "...lalu mengangkat produk ke kamera. Ends with 1-second still hold..." → Veo masih render gerakan di detik terakhir.
+  BENAR: "...holds product near cheek, settled. Ends with 1-second still hold..." → pose sudah diam sebelum hold.
 - Output HANYA prompt-nya saja — satu paragraf langsung. DILARANG KERAS output reasoning, numbered list, label "INTERNAL REASONING", atau penjelasan apapun sebelum/sesudah prompt.
 - Kalau ragu apakah output sudah benar: tanya diri sendiri "apakah ini bisa langsung dikirim ke Veo?" — kalau ada teks selain prompt, hapus.`;
 
@@ -333,24 +371,34 @@ INPUT: satu clip prompt dalam Bahasa Indonesia naratif, berisi aksi model, dialo
 OUTPUT: prompt yang sama dalam format Veo-ready — WAJIB 2 paragraf terpisah dengan baris kosong di antara keduanya.
 
 STRUKTUR OUTPUT WAJIB (2 paragraf):
-Paragraf 1 — Setup visual: shot type, posisi model, aksi sebelum dialog, ekspresi. Dalam Bahasa Inggris.
-Paragraf 2 — Dialog + ending: "Speaks directly to camera, lips sync: '[dialog Indonesia persis]' [aksi minor setelah dialog jika ada]. Ends with 1-second still hold, model smiling at camera, no movement, no speech. Static camera, single take, clean frame."
+Paragraf 1 — Setup visual: shot type, posisi model, aksi sebelum dialog, ekspresi. Dalam Bahasa Inggris. JANGAN sebut aksesori (kawat gigi, anting, kalung, gelang, jam tangan) kecuali disebutkan eksplisit di source prompt — Veo akan menambahkan aksesori tersebut ke video jika disebut di prompt.
+Paragraf 2 — Dialog + ending: "Speaks directly to camera, lips sync: '[dialog Indonesia persis]'. [Jika ada aksi setelah dialog: tulis aksi settle/hold, bukan aksi dinamis baru]. Ends with 1-second still hold, model in settled pose, smiling at camera, no movement, no speech. Static camera, single take, clean frame."
+
+ATURAN STILL HOLD (kritis — sering salah):
+- Still hold = pose SUDAH DIAM sepenuhnya. Veo mengeksekusi aksi terakhir yang dinamis sampai selesai, lalu butuh frame kosong untuk hold.
+- Kalau sebelum still hold ada aksi dinamis ("raises bottle", "presenting proudly"), Veo sering masih render aksi itu di detik terakhir → frame tidak diam.
+- SOLUSI: aksi setelah dialog (jika ada) harus ditulis sebagai POSE STATIS yang sudah settled, BUKAN aksi bergerak.
+  - SALAH: "she raises the product bottle into frame, presenting it proudly towards camera. Ends with 1-second still hold..."
+  - BENAR: "she holds product bottle near cheek, settled. Ends with 1-second still hold, model smiling at camera, no movement, no speech."
+- Kalau sumber prompt ada aksi dinamis setelah dialog, KONVERT ke versi settled sebelum masuk still hold.
 
 ATURAN WAJIB:
 1. PERTAHANKAN dialog model PERSIS kata per kata — jangan translate, jangan paraphrase, jangan persingkat.
 2. CONVERT deskripsi visual/technical ke Bahasa Inggris: lighting, camera direction, motion, setting, material, action verbs.
-3. PERTAHANKAN max 2 major actions — jangan tambah aksi baru.
+3. BUDGET 8 DETIK — kalau source prompt ada dialog DAN major action, enforce: max 1 major action + dialog max 8 kata. Kalau dialog di source lebih dari 8 kata dan ada major action, POTONG dialog ke ≤8 kata yang paling punchy (pertahankan maknanya). Kalau tidak ada major action (pose statis), dialog boleh sampai 18 kata — JANGAN potong, dialog panjang di pose statis mengisi durasi lipsync untuk mencapai 8 detik penuh.
 4. HAPUS prose naratif berlebih, pengulangan, dan negation phrases di deskripsi visual (flip ke positive).
-5. JANGAN tambah konten baru yang tidak ada di source prompt.
-6. Output HANYA 2 paragraf prompt-nya. Tanpa preamble. Tanpa penjelasan. Tanpa markdown.
+5. JANGAN tambah konten baru yang tidak ada di source prompt. JANGAN tambah aksesori, perhiasan, atau detail wajah yang tidak disebutkan di source prompt — Veo akan menambahkan aksesori yang tidak ada di anchor image kalau disebutkan di prompt.
+6. PRODUK TIDAK BOLEH BERPINDAH TANGAN atau menghilang. Kalau source menyebut produk di tangan tertentu, pertahankan tangan yang sama di seluruh prompt. JANGAN tulis aksi yang implisit menyembunyikan produk (contoh: "mengusap wajah" saat tangan pegang produk).
+7. TARGET DURASI 8 DETIK PENUH — Veo mengalokasikan durasi berdasarkan panjang dan detail prompt. Prompt terlalu pendek = video 5-6 detik. Paragraf 1 harus cukup deskriptif: sertakan shot type, posisi model, ekspresi awal, dan deskripsi micro-expression natural (steady gaze, warm smile, relaxed shoulders) agar Veo punya cukup "konten" untuk render 8 detik penuh.
+8. Output HANYA 2 paragraf prompt-nya. Tanpa preamble. Tanpa penjelasan. Tanpa markdown.
 
-CONTOH:
-INPUT: "Model wanita duduk santai di sofa krem, mengambil botol GlowBooster dari meja, tersenyum ke kamera dan berkata: 'Kulitku kusam? Oh sekarang sudah bye-bye! Pake tiap pagi, hasilnya langsung keliatan.' Ekspresi antusias dan natural. Kamera statis."
+CONTOH (pose statis + dialog panjang — TIDAK ada major action, dialog tidak dipotong):
+INPUT: "Model duduk di tepi tempat tidur, memegang botol GlowBooster di tangan kanan (pose settled). Tersenyum ke kamera, berbicara: 'Jujur, capek kerja bikin muka kusam, tapi ini yang bikin aku tetap glowing tiap hari.' Kamera statis."
 
 OUTPUT:
-"Indonesian woman sits comfortably on a cream sofa, picks up GlowBooster bottle from the table beside her, smiles warmly and naturally at the camera with an enthusiastic expression.
+"Medium close-up. Indonesian woman sits on the edge of a modern bed, holding GlowBooster bottle settled in her right hand near her chest. She looks directly at the camera with a warm, sincere smile — relaxed shoulders, steady gaze, authentic tired-but-radiant expression, natural glowing skin.
 
-Speaks directly to camera, lips sync: 'Kulitku kusam? Oh sekarang sudah bye-bye! Pake tiap pagi, hasilnya langsung keliatan.' Ends with 1-second still hold, model smiling at camera, no movement, no speech. Static camera, single take, clean frame."`;
+Speaks directly to camera, lips sync: 'Jujur, capek kerja bikin muka kusam, tapi ini yang bikin aku tetap glowing tiap hari.' Holds bottle settled near chest throughout. Ends with 1-second still hold, model in settled pose, smiling at camera, no movement, no speech. Static camera, single take, clean frame."`;
 
 export const CLEAN_VEO_USER = (rawPrompt: string) =>
-  `Format prompt berikut ke Veo-ready (WAJIB 2 paragraf terpisah, max 150 kata total). Pertahankan dialog Indonesia persis. Convert visual/technical terms ke Inggris:\n\n${rawPrompt}`;
+  `Format prompt berikut ke Veo-ready (WAJIB 2 paragraf terpisah, target 80-120 kata total untuk mengisi penuh 8 detik). Pertahankan dialog Indonesia PERSIS kata per kata — jangan potong, jangan singkat, jangan paraphrase satu kata pun. Convert visual/technical terms ke Inggris. Paragraf 1 harus cukup deskriptif agar video mencapai 8 detik penuh. KRITIS: kalau tidak ada major action di prompt, dialog HARUS dipertahankan penuh (14-18 kata) — lipsync panjang = video penuh 8 detik:\n\n${rawPrompt}`;

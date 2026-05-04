@@ -35,6 +35,19 @@ import('../app/lib/mongoClient').then(({ ensureIndexes }) =>
   // Conservative bucket: WORKER_CONCURRENCY × 4 = headroom for parallel calls within a job.
   await initBucket('chat:global', WORKER_CONCURRENCY * 4);
   console.log('✅ Rate-limit buckets initialized');
+}).then(async () => {
+  // Reset generations stuck di queued/processing tanpa job aktif di queue
+  const { getDb } = await import('../app/lib/mongoClient');
+  const db = await getDb();
+  const activeJobGenIds = await db.collection('JobQueue')
+    .distinct('generation_id', { status: { $in: ['pending', 'processing'] } });
+  const result = await db.collection('Generations').updateMany(
+    { status: { $in: ['queued', 'processing'] }, _id: { $nin: activeJobGenIds.map((id: string) => { try { const { ObjectId } = require('mongodb'); return new ObjectId(id); } catch { return id; } }) } },
+    { $set: { status: 'draft', progress: 0, progress_label: '', updated_at: new Date() } }
+  );
+  if (result.modifiedCount > 0) {
+    console.log(`✅ Reset ${result.modifiedCount} stuck generation(s) ke draft`);
+  }
 }).then(() =>
   import('./poll').catch((error) => {
     console.error('❌ Failed to start worker:', error);

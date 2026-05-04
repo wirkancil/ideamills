@@ -120,7 +120,6 @@ export function ClipEditor({
     clips.every((c) => {
       if (c.prompt.trim().length < 10) return false;
       if (c.imageMode === 'override' && !c.imageDataUrl) return false;
-      if (c.imageMode === 'ai-generate' && !c.imageDataUrl) return false;
       return true;
     });
 
@@ -227,8 +226,8 @@ export function ClipEditor({
       </div>
 
       {needsAiImage && (
-        <p className="text-xs text-amber-600 text-center">
-          ⚠️ Generate AI image dulu untuk clip yang dipilih AI mode sebelum Buat Video.
+        <p className="text-xs text-muted-foreground text-center">
+          AI image belum di-generate — worker akan pakai foto produk sebagai fallback.
         </p>
       )}
 
